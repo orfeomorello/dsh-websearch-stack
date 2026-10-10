@@ -80,6 +80,19 @@ dsh --profile web --patch ./searxng.yml
 
 An absent field keeps its default. An unknown value is refused by the schema, so a typo fails the boot instead of silently disabling a backend.
 
+A Compose-style setup can keep the URL in the environment instead: the entry-list YAML dialect evaluates `!!js` scalars at entry activation, with Node globals in scope.
+
+```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml
+- id: websearch-stack
+  name: dsh-websearch-stack
+  config:
+    enabled_providers: [searxng, tavily]
+    searxng_url: !!js process.env.SEARXNG_URL ?? ''
+```
+
+`--dump-config` prints the expression node unevaluated — the dump is the stored patch, not the resolved value.
+
 | Option | Default | Meaning |
 |---|---|---|
 | `enabled_providers` | `['tavily', 'parallel-mcp']` | Fallback chain, in order. Values: `tavily`, `parallel-mcp`, `searxng`, `brave`, `tinyfish`, `exa`. An empty list disables the plugin (see [How the fallback works](#how-the-fallback-works)). |
