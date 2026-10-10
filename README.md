@@ -1,6 +1,6 @@
 # dsh-websearch-stack
 
-[![CI](https://github.com/<owner>/dsh-websearch-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/dsh-websearch-stack/actions/workflows/ci.yml)
+[![CI](https://github.com/orfeomorello/dsh-websearch-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/orfeomorello/dsh-websearch-stack/actions/workflows/ci.yml)
 
 Multi-provider web search for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). The plugin registers one search provider on the `ctx.web` seam; that provider runs an ordered fallback chain over the backends you enable.
 
@@ -18,14 +18,14 @@ Multi-provider web search for [DeepSeek Harness](https://github.com/deepseek-ai/
 `lib/` is committed, so installing from GitHub needs no build step.
 
 ```bash
-dsh plugin --profile web add github:<owner>/dsh-websearch-stack
+dsh plugin --profile web add github:orfeomorello/dsh-websearch-stack
 ```
 
 To try on a disposable profile first:
 
 ```bash
 dsh --profile web --dump-config > before.txt
-dsh plugin --profile web add github:<owner>/dsh-websearch-stack
+dsh plugin --profile web add github:orfeomorello/dsh-websearch-stack
 dsh --profile web --dump-config > after.txt
 ```
 
