@@ -6,6 +6,7 @@ import { TavilyBackend } from '../lib/backends/tavily.js'
 import { ParallelMcpBackend } from '../lib/backends/parallel-mcp.js'
 import { BraveBackend } from '../lib/backends/brave.js'
 import { TinyfishBackend } from '../lib/backends/tinyfish.js'
+import { ExaBackend } from '../lib/backends/exa.js'
 import { WebError } from '@deepseek-ai/dsh-web'
 
 /** Start a local HTTP server that answers every request with `handler`. */
@@ -209,3 +210,28 @@ test('TinyFish: unavailable without a key; sends X-API-Key and maps results', as
   }
 })
 
+
+
+test('Exa: unavailable without a key; posts x-api-key and maps results', async () => {
+  assert.equal(new ExaBackend({ apiKey: undefined, timeoutMs: 1000 }).available(), false)
+  let seen
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    seen = { url: String(url), headers: init.headers, body: JSON.parse(init.body) }
+    return new Response(JSON.stringify({
+      results: [{ title: 'E', url: 'https://e.test', publishedDate: '2026-01-02', highlights: ['h1'] }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  try {
+    const out = await new ExaBackend({ apiKey: 'ek', timeoutMs: 2000 }).search({ query: 'q', maxResults: 4 })
+    assert.equal(seen.url, 'https://api.exa.ai/search')
+    assert.equal(seen.headers['x-api-key'], 'ek')
+    assert.equal(seen.body.query, 'q')
+    assert.equal(seen.body.numResults, 4)
+    assert.equal(out.sources[0].url, 'https://e.test')
+    assert.equal(out.sources[0].snippet, 'h1')
+    assert.equal(out.sources[0].publishedAt, '2026-01-02')
+  } finally {
+    globalThis.fetch = original
+  }
+})

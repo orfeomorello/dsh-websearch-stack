@@ -1,7 +1,7 @@
 import Schema from '@deepseek-ai/schemastery'
 
 /** Search backends the stack knows how to call, by their canonical identifiers. */
-export const BACKEND_IDS = ['tavily', 'parallel-mcp', 'searxng', 'brave', 'tinyfish'] as const
+export const BACKEND_IDS = ['tavily', 'parallel-mcp', 'searxng', 'brave', 'tinyfish', 'exa'] as const
 export type BackendId = (typeof BACKEND_IDS)[number]
 
 export interface StackConfig {

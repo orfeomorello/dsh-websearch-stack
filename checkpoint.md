@@ -102,6 +102,15 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **UI**: non iniziata.
 - Ricerca web: il provider DSH nativo richiede `DEEPSEEK_API_KEY`, quindi non è usabile per verificare i provider dal sistema.
 
+## Round 6
+
+- Aggiunto backend `tinyfish`: `GET https://api.search.tinyfish.ai?query=`, header `X-API-Key`, chiave da env `TINYFISH_API_KEY`. Fonte: https://docs.tinyfish.ai/search-api/reference. Commit `535887c`.
+- 26/26 test verdi, typecheck ok, `lib/` allineato a `src/`.
+- **Exa**: NON implementato. Dalla specifica OpenAPI (https://exa.ai/docs/exa-spec.yaml) il testo ottenuto è troncato e non contiene i componenti `SearchRequest`/`SearchResponse`, quindi non posso confermare i campi di request e response. Serve la specifica completa (es. file `exa-spec.json`).
+- **Jina**: non implementato. Il fetch è coperto da `dsh-web-fetch-http`; decisione da confermare con l'utente.
+- **UI**: non iniziata.
+- **Servizi reali**: nessun backend è stato chiamato contro il servizio live (manca la chiave; la ricerca web del provider DSH nativo richiede `DEEPSEEK_API_KEY`).
+
 ## Stato finale del round 4
 
 - Repo git: commit `b5c62ef` su `main`, working tree pulito.

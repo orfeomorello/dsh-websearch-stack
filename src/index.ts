@@ -6,6 +6,7 @@ import { ParallelMcpBackend } from './backends/parallel-mcp.ts'
 import { SearxngBackend } from './backends/searxng.ts'
 import { BraveBackend } from './backends/brave.ts'
 import { TinyfishBackend } from './backends/tinyfish.ts'
+import { ExaBackend } from './backends/exa.ts'
 import { StackSearchProvider } from './stack.ts'
 import type { WebSearchProvider } from '@deepseek-ai/dsh-web'
 
@@ -34,6 +35,11 @@ function makeBackend(id: BackendId, config: StackConfig): WebSearchProvider {
     case 'tinyfish':
       return new TinyfishBackend({
         apiKey: process.env.TINYFISH_API_KEY,
+        timeoutMs: config.default_timeout_ms,
+      })
+    case 'exa':
+      return new ExaBackend({
+        apiKey: process.env.EXA_API_KEY,
         timeoutMs: config.default_timeout_ms,
       })
   }
