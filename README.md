@@ -61,6 +61,13 @@ search:
 | `parallel-mcp` | no | JSON-RPC `tools/call` su `web_search`, senza credenziali. |
 | `searxng` | no | Istanza self-hosted, richiede `searxng_url`. |
 
+### Convivenza con il provider DeepSeek nativo
+
+Il profilo `web` di DSH include già `web-search-deepseek`. Quel provider è utilizzabile solo se è configurata una chiave (`DEEPSEEK_API_KEY`). Il seam `ctx.web` accetta un solo provider utilizzabile quando non ne è pinnato uno, quindi:
+
+- **Senza `DEEPSEEK_API_KEY`**: il provider DeepSeek non è utilizzabile e lo stack è l'unico candidato. Nessuna configurazione extra.
+- **Con `DEEPSEEK_API_KEY`**: i due provider sono entrambi utilizzabili e il seam risponde `WEB_PROVIDER_AMBIGUOUS`. Devi scegliere il provider nel config del servizio `web`, impostando `searchProvider: websearch-stack` (campo di `WebRuntimeConfig`, non di questo plugin). Non è possibile farlo da questo plugin, perché `apply` riceve solo la propria configurazione.
+
 ## Come funziona il fallback
 
 Il seam `ctx.web` accetta un solo provider di ricerca utilizzabile quando non ne è configurato uno. Per questo il plugin registra un unico provider, `websearch-stack`, che prova i backend in ordine:

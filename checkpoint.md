@@ -102,6 +102,21 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **UI**: non iniziata.
 - Ricerca web: il provider DSH nativo richiede `DEEPSEEK_API_KEY`, quindi non è usabile per verificare i provider dal sistema.
 
+## Round 11
+
+- Profilo `web` di default: include `web-search-deepseek` e `web-fetch-http`.
+- `web-search-deepseek.available()` richiede chiave, token account o `resolveApiKey`. Senza `DEEPSEEK_API_KEY` non è utilizzabile: lo stack è l'unico candidato.
+- **Limite noto**: con `DEEPSEEK_API_KEY` impostata, il seam risponde `WEB_PROVIDER_AMBIGUOUS` finché `searchProvider` non è pinnato nel servizio `web` (non nel plugin). Documentato nel README. Il plugin non può impostarlo da solo.
+- Nessuna modifica al codice in questo round: analisi e documentazione.
+
+## Round 10
+
+- Endpoint verificati live senza chiave: Brave 422, Exa 402, TinyFish 401. Gli URL sono corretti.
+- Errori HTTP ora mappati per codice: 401/403 → `WEB_AUTH_FAILED`, 402 → `WEB_CREDITS_EXHAUSTED`, 429 → `WEB_RATE_LIMITED`. Tutti e tre sono recuperabili per il fallback. Commit `91c7145`.
+- Rimosso un limite di rate ("30 req/min") nel commento TinyFish: non verificato.
+- 29/29 test verdi. `lib/` allineato.
+- Restano non verificati con chiave reale: Brave, Exa, TinyFish. SearXNG non verificato (serve istanza).
+
 ## Round 9 — verifica su servizi reali
 
 - **Tavily keyless**: verificato live (HTTP 200, 3 fonti reali). Backend OK.
