@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # lib/ is committed, so it must match what the build produces from src/.
+      - name: Build
+        run: npm run build
+
+      - name: Fail if lib/ is stale
+        run: |
+          if [ -n "$(git status --porcelain -- lib)" ]; then
+            echo "lib/ does not match src/. Run 'npm run build' and commit lib/."
+            git status --porcelain -- lib
+            exit 1
+          fi
