@@ -7,7 +7,8 @@ export interface TinyfishOptions {
 /**
  * TinyFish Search backend, documented at https://docs.tinyfish.ai/search-api/reference:
  * `GET https://api.search.tinyfish.ai?query=...` with the `X-API-Key` header. Requires a key.
- * Free up to 12,000 requests per day; 30 requests per minute per key by default.
+ * Free allowance of 12,000 requests per day, per https://docs.tinyfish.ai/search-api/reference.
+ * Without a key the endpoint returns HTTP 401 (verified live).
  */
 export declare class TinyfishBackend implements WebSearchProvider {
     private readonly options;

@@ -95,3 +95,15 @@ test('available() is true only when some backend is available', () => {
   assert.equal(none.available(), false)
   assert.equal(some.available(), true)
 })
+
+test('auth and credit failures are recoverable: the chain moves on', async () => {
+  const calls = []
+  const stack = new StackSearchProvider([
+    { id: 'brave', provider: fake('brave', { error: new WebError('x', 'WEB_AUTH_FAILED'), calls }) },
+    { id: 'exa', provider: fake('exa', { error: new WebError('y', 'WEB_CREDITS_EXHAUSTED'), calls }) },
+    { id: 'searxng', provider: fake('searxng', { result: OK, calls }) },
+  ])
+  const out = await stack.search(req)
+  assert.deepEqual(out, OK)
+  assert.deepEqual(calls, ['brave', 'exa', 'searxng'])
+})

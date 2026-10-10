@@ -30,10 +30,7 @@ export async function requestJson(
   const text = await readBounded(response, signal, timeout, callerSignal)
 
   if (!response.ok) {
-    throw new WebError(
-      `backend responded with HTTP ${response.status}`,
-      response.status === 429 ? 'WEB_RATE_LIMITED' : 'WEB_PROVIDER_ERROR',
-    )
+    throw new WebError(`backend responded with HTTP ${response.status}`, codeForStatus(response.status))
   }
 
   try {
@@ -43,6 +40,18 @@ export async function requestJson(
       cause: error,
     })
   }
+}
+
+/**
+ * Map an HTTP status to a stable error code. 401/403 mean the key is wrong or missing,
+ * 402 means credits are exhausted: all three are terminal for the key, not the query,
+ * but the chain still moves on because another backend may work. 429 is rate limiting.
+ */
+export function codeForStatus(status: number): string {
+  if (status === 401 || status === 403) return 'WEB_AUTH_FAILED'
+  if (status === 402) return 'WEB_CREDITS_EXHAUSTED'
+  if (status === 429) return 'WEB_RATE_LIMITED'
+  return 'WEB_PROVIDER_ERROR'
 }
 
 /** Read a response body while enforcing the byte cap. Declared length is checked first. */

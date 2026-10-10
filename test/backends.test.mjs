@@ -236,3 +236,12 @@ test('Exa: unavailable without a key; posts x-api-key and maps results', async (
   }
 })
 
+
+test('HTTP status maps to stable codes: 401/403 auth, 402 credits, 429 rate limit', async () => {
+  const { codeForStatus } = await import('../lib/http.js')
+  assert.equal(codeForStatus(401), 'WEB_AUTH_FAILED')
+  assert.equal(codeForStatus(403), 'WEB_AUTH_FAILED')
+  assert.equal(codeForStatus(402), 'WEB_CREDITS_EXHAUSTED')
+  assert.equal(codeForStatus(429), 'WEB_RATE_LIMITED')
+  assert.equal(codeForStatus(500), 'WEB_PROVIDER_ERROR')
+})

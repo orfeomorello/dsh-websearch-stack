@@ -8,3 +8,9 @@ export declare const TIMEOUT_CODE = "WEB_SEARCH_TIMEOUT";
  * cancellation produces `WEB_ABORTED`. Both are routed by `code`, never by message.
  */
 export declare function requestJson(url: string, init: RequestInit, timeoutMs: number, callerSignal: AbortSignal | undefined): Promise<unknown>;
+/**
+ * Map an HTTP status to a stable error code. 401/403 mean the key is wrong or missing,
+ * 402 means credits are exhausted: all three are terminal for the key, not the query,
+ * but the chain still moves on because another backend may work. 429 is rate limiting.
+ */
+export declare function codeForStatus(status: number): string;

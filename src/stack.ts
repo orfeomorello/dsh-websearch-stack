@@ -9,6 +9,9 @@ const RECOVERABLE = new Set([
   'WEB_SEARCH_TIMEOUT',
   'WEB_PROVIDER_UNAVAILABLE',
   'WEB_RESPONSE_TOO_LARGE',
+  // A wrong key or exhausted credits affect one backend, not the query: move on.
+  'WEB_AUTH_FAILED',
+  'WEB_CREDITS_EXHAUSTED',
 ])
 
 export interface FallbackAttempt {

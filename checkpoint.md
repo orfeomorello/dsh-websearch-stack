@@ -102,6 +102,14 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **UI**: non iniziata.
 - Ricerca web: il provider DSH nativo richiede `DEEPSEEK_API_KEY`, quindi non è usabile per verificare i provider dal sistema.
 
+## Round 9 — verifica su servizi reali
+
+- **Tavily keyless**: verificato live (HTTP 200, 3 fonti reali). Backend OK.
+- **Parallel MCP**: il backend era SBAGLIATO (usava `query`/`max_results`, inesistenti). Corretto da `tools/list` live: `objective` + `search_queries` (array), risultato `structuredContent.results[]` con `url`, `title`, `publish_date`, `excerpts[]`. Verificato live (3 fonti). Commit `2e1b7d8`.
+- 27/27 test verdi, typecheck ok, `lib/` allineato.
+- Brave, TinyFish, Exa: NON verificati live (mancano le chiavi API).
+- SearXNG: NON verificato (serve un'istanza locale).
+
 ## Round 8 — analisi UI (nessun codice scritto)
 
 - Letta la struttura dei plugin client di DSH in `dsh-client-ui-settings-web-search` (0.2.0-rc.2), scaricata in `%TEMP%` fuori dal repo.
