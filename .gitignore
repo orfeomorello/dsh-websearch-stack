@@ -3,4 +3,7 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+# docs/ is excluded (development-only instructions, not published)
+docs/
+
 # lib/ is committed on purpose (see README: git install without build step).
