@@ -21,9 +21,9 @@ function serve(handler) {
 }
 
 test('SearXNG: unavailable when no URL or a non-http URL is configured', () => {
-  assert.equal(new SearxngBackend({ baseUrl: undefined, timeoutMs: 1000, language: 'en' }).available(), false)
-  assert.equal(new SearxngBackend({ baseUrl: 'ftp://x', timeoutMs: 1000, language: 'en' }).available(), false)
-  assert.equal(new SearxngBackend({ baseUrl: 'http://localhost:8080', timeoutMs: 1000, language: 'en' }).available(), true)
+  assert.equal(new SearxngBackend({ baseUrl: () => undefined, timeoutMs: () => 1000, limit: () => 5, language: 'en' }).available(), false)
+  assert.equal(new SearxngBackend({ baseUrl: () => 'ftp://x', timeoutMs: () => 1000, limit: () => 5, language: 'en' }).available(), false)
+  assert.equal(new SearxngBackend({ baseUrl: () => 'http://localhost:8080', timeoutMs: () => 1000, limit: () => 5, language: 'en' }).available(), true)
 })
 
 test('SearXNG: maps results to sources and applies maxResults', async () => {
@@ -41,7 +41,7 @@ test('SearXNG: maps results to sources and applies maxResults', async () => {
     }))
   })
   try {
-    const b = new SearxngBackend({ baseUrl: srv.url, timeoutMs: 2000, language: 'en' })
+    const b = new SearxngBackend({ baseUrl: () => srv.url, timeoutMs: () => 2000, limit: () => 5, language: 'en' })
     const out = await b.search({ query: 'q', maxResults: 2 })
     assert.equal(out.sources.length, 2)
     assert.equal(out.sources[0].snippet, 'sa')
@@ -54,7 +54,7 @@ test('SearXNG: maps results to sources and applies maxResults', async () => {
 test('SearXNG: HTTP 429 maps to WEB_RATE_LIMITED', async () => {
   const srv = await serve((_req, res) => { res.writeHead(429); res.end('{}') })
   try {
-    const b = new SearxngBackend({ baseUrl: srv.url, timeoutMs: 2000, language: 'en' })
+    const b = new SearxngBackend({ baseUrl: () => srv.url, timeoutMs: () => 2000, limit: () => 5, language: 'en' })
     await assert.rejects(b.search({ query: 'q' }), (e) => e instanceof WebError && e.code === 'WEB_RATE_LIMITED')
   } finally {
     await srv.close()
@@ -64,7 +64,7 @@ test('SearXNG: HTTP 429 maps to WEB_RATE_LIMITED', async () => {
 test('request exceeding the timeout maps to WEB_SEARCH_TIMEOUT', async () => {
   const srv = await serve(() => { /* never answer */ })
   try {
-    const b = new SearxngBackend({ baseUrl: srv.url, timeoutMs: 200, language: 'en' })
+    const b = new SearxngBackend({ baseUrl: () => srv.url, timeoutMs: () => 200, limit: () => 5, language: 'en' })
     await assert.rejects(b.search({ query: 'q' }), (e) => e instanceof WebError && e.code === 'WEB_SEARCH_TIMEOUT')
   } finally {
     await srv.close()
@@ -74,7 +74,7 @@ test('request exceeding the timeout maps to WEB_SEARCH_TIMEOUT', async () => {
 test('invalid JSON maps to WEB_PROVIDER_ERROR', async () => {
   const srv = await serve((_req, res) => { res.writeHead(200); res.end('<html>') })
   try {
-    const b = new SearxngBackend({ baseUrl: srv.url, timeoutMs: 2000, language: 'en' })
+    const b = new SearxngBackend({ baseUrl: () => srv.url, timeoutMs: () => 2000, limit: () => 5, language: 'en' })
     await assert.rejects(b.search({ query: 'q' }), (e) => e instanceof WebError && e.code === 'WEB_PROVIDER_ERROR')
   } finally {
     await srv.close()
@@ -87,7 +87,7 @@ test('response larger than the cap maps to WEB_RESPONSE_TOO_LARGE', async () => 
     res.end('{"results":[],"pad":"' + 'x'.repeat(3 * 1024 * 1024) + '"}')
   })
   try {
-    const b = new SearxngBackend({ baseUrl: srv.url, timeoutMs: 5000, language: 'en' })
+    const b = new SearxngBackend({ baseUrl: () => srv.url, timeoutMs: () => 5000, limit: () => 5, language: 'en' })
     await assert.rejects(b.search({ query: 'q' }), (e) => e instanceof WebError && e.code === 'WEB_RESPONSE_TOO_LARGE')
   } finally {
     await srv.close()
@@ -106,7 +106,7 @@ test('Tavily: sends the keyless header when no key is configured', async () => {
     })
   }
   try {
-    const b = new TavilyBackend({ apiKey: undefined, timeoutMs: 2000 })
+    const b = new TavilyBackend({ apiKey: () => undefined, timeoutMs: () => 2000, limit: () => 5 })
     const out = await b.search({ query: 'q', maxResults: 3 })
     assert.equal(seen.headers['x-tavily-access-mode'], 'keyless')
     assert.equal(seen.headers.authorization, undefined)
@@ -124,7 +124,7 @@ test('Tavily: sends a bearer token when a key is configured', async () => {
     return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   try {
-    const b = new TavilyBackend({ apiKey: 'k123', timeoutMs: 2000 })
+    const b = new TavilyBackend({ apiKey: () => 'k123', timeoutMs: () => 2000, limit: () => 5 })
     await b.search({ query: 'q' })
     assert.equal(seen.authorization, 'Bearer k123')
     assert.equal(seen['x-tavily-access-mode'], undefined)
@@ -139,7 +139,7 @@ test('Parallel MCP: maps structuredContent results to sources', async () => {
     result: { structuredContent: { results: [{ title: 'P', url: 'https://p.test', excerpts: ['e'], publish_date: '2026-03-04' }] } },
   }), { status: 200, headers: { 'content-type': 'application/json' } })
   try {
-    const out = await new ParallelMcpBackend({ timeoutMs: 2000 }).search({ query: 'q' })
+    const out = await new ParallelMcpBackend({ timeoutMs: () => 2000, limit: () => 5 }).search({ query: 'q' })
     assert.equal(out.sources[0].url, 'https://p.test')
     assert.equal(out.sources[0].snippet, 'e')
   } finally {
@@ -155,7 +155,7 @@ test('Parallel MCP: a JSON-RPC error maps to WEB_PROVIDER_ERROR', async () => {
   })
   try {
     await assert.rejects(
-      new ParallelMcpBackend({ timeoutMs: 2000 }).search({ query: 'q' }),
+      new ParallelMcpBackend({ timeoutMs: () => 2000, limit: () => 5 }).search({ query: 'q' }),
       (e) => e instanceof WebError && e.code === 'WEB_PROVIDER_ERROR',
     )
   } finally {
@@ -164,9 +164,9 @@ test('Parallel MCP: a JSON-RPC error maps to WEB_PROVIDER_ERROR', async () => {
 })
 
 test('Brave: unavailable without an API key', () => {
-  assert.equal(new BraveBackend({ apiKey: undefined, timeoutMs: 1000 }).available(), false)
-  assert.equal(new BraveBackend({ apiKey: '', timeoutMs: 1000 }).available(), false)
-  assert.equal(new BraveBackend({ apiKey: 'k', timeoutMs: 1000 }).available(), true)
+  assert.equal(new BraveBackend({ apiKey: () => undefined, timeoutMs: () => 1000, limit: () => 5 }).available(), false)
+  assert.equal(new BraveBackend({ apiKey: () => '', timeoutMs: () => 1000, limit: () => 5 }).available(), false)
+  assert.equal(new BraveBackend({ apiKey: () => 'k', timeoutMs: () => 1000, limit: () => 5 }).available(), true)
 })
 
 test('Brave: sends X-Subscription-Token and maps web.results', async () => {
@@ -179,7 +179,7 @@ test('Brave: sends X-Subscription-Token and maps web.results', async () => {
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   try {
-    const out = await new BraveBackend({ apiKey: 'tok', timeoutMs: 2000 }).search({ query: 'q', maxResults: 3 })
+    const out = await new BraveBackend({ apiKey: () => 'tok', timeoutMs: () => 2000, limit: () => 5 }).search({ query: 'q', maxResults: 3 })
     assert.equal(seen.headers['x-subscription-token'], 'tok')
     assert.match(seen.url, /res\/v1\/web\/search\?q=q&count=3/)
     assert.equal(out.sources[0].url, 'https://b.test')
@@ -190,7 +190,7 @@ test('Brave: sends X-Subscription-Token and maps web.results', async () => {
 })
 
 test('TinyFish: unavailable without a key; sends X-API-Key and maps results', async () => {
-  assert.equal(new TinyfishBackend({ apiKey: undefined, timeoutMs: 1000 }).available(), false)
+  assert.equal(new TinyfishBackend({ apiKey: () => undefined, timeoutMs: () => 1000, limit: () => 5 }).available(), false)
   let seen
   const original = globalThis.fetch
   globalThis.fetch = async (url, init) => {
@@ -200,7 +200,7 @@ test('TinyFish: unavailable without a key; sends X-API-Key and maps results', as
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   try {
-    const out = await new TinyfishBackend({ apiKey: 'k', timeoutMs: 2000 }).search({ query: 'q', maxResults: 1 })
+    const out = await new TinyfishBackend({ apiKey: () => 'k', timeoutMs: () => 2000, limit: () => 5 }).search({ query: 'q', maxResults: 1 })
     assert.equal(seen.headers['x-api-key'], 'k')
     assert.match(seen.url, /api\.search\.tinyfish\.ai\/?\?query=q/)
     assert.equal(out.sources.length, 1)
@@ -213,7 +213,7 @@ test('TinyFish: unavailable without a key; sends X-API-Key and maps results', as
 
 
 test('Exa: unavailable without a key; posts x-api-key and maps results', async () => {
-  assert.equal(new ExaBackend({ apiKey: undefined, timeoutMs: 1000 }).available(), false)
+  assert.equal(new ExaBackend({ apiKey: () => undefined, timeoutMs: () => 1000, limit: () => 5 }).available(), false)
   let seen
   const original = globalThis.fetch
   globalThis.fetch = async (url, init) => {
@@ -223,7 +223,7 @@ test('Exa: unavailable without a key; posts x-api-key and maps results', async (
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   try {
-    const out = await new ExaBackend({ apiKey: 'ek', timeoutMs: 2000 }).search({ query: 'q', maxResults: 4 })
+    const out = await new ExaBackend({ apiKey: () => 'ek', timeoutMs: () => 2000, limit: () => 5 }).search({ query: 'q', maxResults: 4 })
     assert.equal(seen.url, 'https://api.exa.ai/search')
     assert.equal(seen.headers['x-api-key'], 'ek')
     assert.equal(seen.body.query, 'q')

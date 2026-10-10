@@ -5,9 +5,13 @@ import { WebError } from '@deepseek-ai/dsh-web'
 const ENDPOINT = 'https://api.tavily.com/search'
 
 export interface TavilyOptions {
-  /** Optional API key. When absent the keyless header is sent. */
-  readonly apiKey: string | undefined
-  readonly timeoutMs: number
+  /** Read the optional API key. When the read is empty the keyless header is
+   * sent. */
+  readonly apiKey: () => string | undefined
+  /** Read the request timeout, in milliseconds. */
+  readonly timeoutMs: () => number
+  /** Read the source cap to apply when the request names none. */
+  readonly limit: () => number
 }
 
 /** Wire shape of a Tavily search response, reduced to the fields the stack reads. */
@@ -37,15 +41,16 @@ export class TavilyBackend implements WebSearchProvider {
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     const headers: Record<string, string> = { 'content-type': 'application/json' }
-    if (this.options.apiKey !== undefined) {
-      headers.authorization = `Bearer ${this.options.apiKey}`
+    const apiKey = this.options.apiKey()
+    if (typeof apiKey === 'string' && apiKey.length > 0) {
+      headers.authorization = `Bearer ${apiKey}`
     } else {
       headers['x-tavily-access-mode'] = 'keyless'
     }
 
     const body = {
       query: request.query,
-      max_results: request.maxResults ?? 5,
+      max_results: request.maxResults ?? this.options.limit(),
       search_depth: 'basic',
       include_answer: false,
       include_raw_content: false,
@@ -55,7 +60,7 @@ export class TavilyBackend implements WebSearchProvider {
     const json = (await requestJson(
       ENDPOINT,
       { method: 'POST', headers, body: JSON.stringify(body) },
-      this.options.timeoutMs,
+      this.options.timeoutMs(),
       signal,
     )) as TavilyResponse
 

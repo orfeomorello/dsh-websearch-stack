@@ -3,9 +3,13 @@ import type { WebSearchProvider, WebSearchRequest, WebSearchResult } from '@deep
 import { requestJson } from '../http.ts'
 
 export interface SearxngOptions {
-  /** Base URL of the SearXNG instance. `undefined` makes the backend unavailable. */
-  readonly baseUrl: string | undefined
-  readonly timeoutMs: number
+  /** Read the base URL of the SearXNG instance. An empty read makes the
+   * backend unavailable. */
+  readonly baseUrl: () => string | undefined
+  /** Read the request timeout, in milliseconds. */
+  readonly timeoutMs: () => number
+  /** Read the source cap to apply when the request names none. */
+  readonly limit: () => number
   readonly language: string
 }
 
@@ -46,7 +50,7 @@ export class SearxngBackend implements WebSearchProvider {
     const json = (await requestJson(
       url.toString(),
       { method: 'GET', headers: { accept: 'application/json' } },
-      this.options.timeoutMs,
+      this.options.timeoutMs(),
       signal,
     )) as SearxngResponse
 
@@ -54,7 +58,7 @@ export class SearxngBackend implements WebSearchProvider {
       throw new WebError('SearXNG response has no results array', 'WEB_PROVIDER_ERROR')
     }
 
-    const limit = request.maxResults ?? 5
+    const limit = request.maxResults ?? this.options.limit()
     const sources = json.results
       .filter((item) => typeof item.url === 'string' && item.url.length > 0)
       .slice(0, limit)
@@ -74,9 +78,10 @@ export class SearxngBackend implements WebSearchProvider {
   }
 
   private parsedBase(): URL | undefined {
-    if (this.options.baseUrl === undefined || this.options.baseUrl.length === 0) return undefined
+    const baseUrl = this.options.baseUrl()
+    if (typeof baseUrl !== 'string' || baseUrl.length === 0) return undefined
     try {
-      const url = new URL(this.options.baseUrl)
+      const url = new URL(baseUrl)
       return url.protocol === 'http:' || url.protocol === 'https:' ? url : undefined
     } catch {
       return undefined

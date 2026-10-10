@@ -17,13 +17,12 @@ interface StackCardState {
     saving: boolean;
     keys: Partial<Record<CredentialRef, KeyState>>;
 }
-/** Minimal face of the `credentials` Remote namespace the card depends on. */
+/** Minimal face of the `credentials` Remote namespace the card depends on.
+ * Both methods answer a `RemoteResult`, whose shape the unwrappers below
+ * read; neither rejects by contract. */
 interface CredentialsRemote {
-    describe(refs: readonly CredentialRef[]): Promise<Record<string, {
-        configured: boolean;
-        writable: boolean;
-    }> | undefined>;
-    set(ref: string, value: string): Promise<void>;
+    describe(refs: readonly CredentialRef[]): Promise<unknown>;
+    set(ref: string, value: string): Promise<unknown>;
 }
 /**
  * Snapshot store behind the card: `getSnapshot`/`subscribe` is the shape the
@@ -39,8 +38,16 @@ declare class StackCardStore {
     constructor(credentials: CredentialsRemote);
     getSnapshot(): StackCardState;
     subscribe(listener: () => void): () => void;
-    /** Fetch facts for every reference in one batched `describe`. */
-    load(): Promise<void>;
+    /**
+     * One Remote call, answered. A Remote does not reject by contract, so a
+     * throw here means the Host does not serve the namespace at all.
+     */
+    private ask;
+    /**
+     * Fetch facts for every reference in one batched `describe`.
+     * @returns whether the Host answered; false keeps the form waiting.
+     */
+    load(): Promise<boolean>;
     /** Re-read one reference after the Host reports it changed. */
     refresh(ref: CredentialRef): Promise<void>;
     /** Stage draft text; a blank draft means "no write on save". */

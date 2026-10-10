@@ -9,9 +9,15 @@
  * whether a key is configured (never the literal), `set` writes it. Staged
  * drafts save all at once; a blank draft writes nothing, which keeps the
  * stored key rather than clearing it.
+ *
+ * A Remote answer is a `RemoteResult`, never a bare value and never a throw:
+ * `{ ok: true, value }` on success, `{ ok: false, error }` on failure. Reading
+ * the payload out of `value` is what keeps the card usable — taking the
+ * resolved answer itself leaves every reference looking absent, which renders
+ * the whole form disabled.
  */
 import { createElement, useEffect, useState } from 'react'
-import { SettingsSecretField } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SettingsForm, SettingsSecretField } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 
 /** Package name; also the `plugins.bundle.config` key the card registers under. */
@@ -37,6 +43,8 @@ const BACKEND_LABEL: Record<CredentialRef, string> = {
 /** English copy; `{name}`-style templating is not needed here. */
 const en = {
   description: 'API keys for the search backends. Keys are stored by the Host, never in a settings file.',
+  unavailable: 'The keys cannot be read right now; the plugin page will retry.',
+  readOnly: 'This deployment stores settings read-only.',
   keyLabel: 'Key',
   keyHint: 'Stored by the Host outside the settings file. Leave blank to keep the current key.',
   keyConfigured: 'A key is configured.',
@@ -45,7 +53,6 @@ const en = {
   save: 'Save',
   saving: 'Saving…',
   saveFailed: 'Some keys could not be saved; their drafts were kept.',
-  discard: 'Discard',
 } as const
 type LocaleKey = keyof typeof en
 
@@ -64,11 +71,16 @@ interface StackCardState {
   keys: Partial<Record<CredentialRef, KeyState>>
 }
 
-/** Minimal face of the `credentials` Remote namespace the card depends on. */
+/** Minimal face of the `credentials` Remote namespace the card depends on.
+ * Both methods answer a `RemoteResult`, whose shape the unwrappers below
+ * read; neither rejects by contract. */
 interface CredentialsRemote {
-  describe(refs: readonly CredentialRef[]): Promise<Record<string, { configured: boolean; writable: boolean }> | undefined>
-  set(ref: string, value: string): Promise<void>
+  describe(refs: readonly CredentialRef[]): Promise<unknown>
+  set(ref: string, value: string): Promise<unknown>
 }
+
+/** One `describe` payload: per reference, facts and never a literal. */
+type CredentialAnswer = Partial<Record<string, { configured?: boolean; writable?: boolean } | undefined>>
 
 /** Minimal client-context share the card needs at runtime. */
 interface CardContext {
@@ -78,7 +90,31 @@ interface CardContext {
     inject(name: string, register: () => unknown): unknown
     register(options: Record<string, unknown>, component: unknown): () => void
   }
+  /** Host-connection event bus, when the serving client exposes one. */
+  on?(event: string, listener: () => void): unknown
   effect(factory: () => unknown, label: string): unknown
+}
+
+/** Backoff between describe retries while the Host has not answered yet. */
+const DESCRIBE_RETRY_DELAYS_MS = [250, 1000, 4000] as const
+
+/** A Remote answer's payload: `{ ok, value }` carries it under `value`. */
+function remoteValue<T>(answer: unknown): T | undefined {
+  if (answer !== null && typeof answer === 'object' && 'ok' in answer) {
+    const result = answer as { ok: boolean; value?: T }
+    return result.ok ? result.value : undefined
+  }
+  return (answer ?? undefined) as T | undefined
+}
+
+/** Whether a Remote answer reported success. A void or missing answer — a
+ * `set` that never crossed the wire — counts as not accepted, so its draft
+ * stays for the user instead of vanishing. */
+function remoteAccepted(answer: unknown): boolean {
+  if (answer !== null && typeof answer === 'object' && 'ok' in answer) {
+    return (answer as { ok: boolean }).ok === true
+  }
+  return answer !== undefined && answer !== false
 }
 
 /**
@@ -108,28 +144,47 @@ class StackCardStore {
     }
   }
 
-  /** Fetch facts for every reference in one batched `describe`. */
-  async load(): Promise<void> {
-    const answer = await this.credentials.describe(CREDENTIAL_REFS).catch(() => undefined)
-    if (!answer) return
+  /**
+   * One Remote call, answered. A Remote does not reject by contract, so a
+   * throw here means the Host does not serve the namespace at all.
+   */
+  private async ask(call: Promise<unknown>): Promise<unknown> {
+    try {
+      return await call
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Fetch facts for every reference in one batched `describe`.
+   * @returns whether the Host answered; false keeps the form waiting.
+   */
+  async load(): Promise<boolean> {
+    const value = remoteValue<CredentialAnswer>(await this.ask(this.credentials.describe(CREDENTIAL_REFS)))
+    if (!value) {
+      this.publish()
+      return false
+    }
     const keys: Partial<Record<CredentialRef, KeyState>> = {}
     for (const ref of CREDENTIAL_REFS) {
-      const view = answer[ref]
-      keys[ref] = { configured: view?.configured ?? false, writable: view?.writable ?? false }
+      const view = value[ref]
+      keys[ref] = { configured: view?.configured ?? false, writable: view?.writable ?? true }
     }
     this.patch({ ready: true, keys })
     this.publish()
+    return true
   }
 
   /** Re-read one reference after the Host reports it changed. */
   async refresh(ref: CredentialRef): Promise<void> {
-    const answer = await this.credentials.describe([ref]).catch(() => undefined)
-    if (!answer) return
-    const view = answer[ref]
-    const next: KeyState = { configured: view?.configured ?? false, writable: view?.writable ?? false }
+    const value = remoteValue<CredentialAnswer>(await this.ask(this.credentials.describe([ref])))
+    if (!value) return
+    const view = value[ref]
+    const next: KeyState = { configured: view?.configured ?? false, writable: view?.writable ?? true }
     const previous = this.snapshot.keys[ref]
     if (previous && previous.configured === next.configured && previous.writable === next.writable) return
-    this.patch({ keys: { ...this.snapshot.keys, [ref]: next } })
+    this.patch({ ready: true, keys: { ...this.snapshot.keys, [ref]: next } })
     this.publish()
   }
 
@@ -153,14 +208,11 @@ class StackCardStore {
     this.publish()
     let failed = false
     for (const ref of CREDENTIAL_REFS) {
-      const value = this.staged.get(ref)
-      if (value === undefined) continue
-      try {
-        await this.credentials.set(ref, value)
-        this.staged.delete(ref)
-      } catch {
-        failed = true
-      }
+      const text = this.staged.get(ref)
+      if (text === undefined) continue
+      const answer = await this.ask(this.credentials.set(ref, text))
+      if (remoteAccepted(answer)) this.staged.delete(ref)
+      else failed = true
     }
     this.saving = false
     this.patch({ saving: false, failed, dirty: this.staged.size > 0 })
@@ -185,7 +237,9 @@ class StackCardStore {
   }
 }
 
-/** One credential control per key-backed backend, in display order. */
+/** One credential control per key-backed backend, in display order.
+ * The shared form frame draws the chrome: the unavailable line while the Host
+ * has not answered, the failure line, and the save in a spaced footer. */
 function CardBody(props: {
   state: StackCardState
   staged: Record<CredentialRef, string>
@@ -195,46 +249,47 @@ function CardBody(props: {
   onDiscard: () => void
 }) {
   const { state, t } = props
-  return createElement(
-    'div',
-    null,
-    CREDENTIAL_REFS.map((ref) => {
-      const key = state.keys[ref] ?? { configured: false, writable: true }
-      const backend = BACKEND_LABEL[ref]
-      return createElement(SettingsSecretField, {
-        key: ref,
-        id: `plugin-config-websearch-stack-${backend}`,
-        label: `${t('keyLabel')} (${backend})`,
-        hint: t('keyHint'),
-        disabled: !state.ready || !key.writable,
-        text: props.staged[ref] ?? '',
-        configured: key.configured,
-        stateLabel: key.configured
-          ? t('keyConfigured')
-          : key.writable
-            ? t('keyUnset')
-            : t('keyNotWritable'),
-        onEdit: (text: string) => {
-          props.onEdit(ref, text)
-        },
-      })
-    }),
-    createElement(
-      'p',
-      { role: 'status' },
-      state.failed ? t('saveFailed') : null,
-    ),
-    createElement('button', {
-      type: 'button',
-      disabled: state.saving || !state.ready || !state.dirty,
-      onClick: props.onSave,
-    }, state.saving ? t('saving') : t('save')),
-    createElement('button', {
-      type: 'button',
-      disabled: state.saving || !state.dirty,
-      onClick: props.onDiscard,
-    }, t('discard')),
-  )
+  const fields = CREDENTIAL_REFS.map((ref) => {
+    const key = state.keys[ref] ?? { configured: false, writable: true }
+    const backend = BACKEND_LABEL[ref]
+    return createElement(SettingsSecretField, {
+      key: ref,
+      id: `plugin-config-websearch-stack-${backend}`,
+      label: `${t('keyLabel')} (${backend})`,
+      hint: t('keyHint'),
+      disabled: !state.ready || !key.writable,
+      text: props.staged[ref] ?? '',
+      configured: key.configured,
+      stateLabel: key.configured
+        ? t('keyConfigured')
+        : key.writable
+          ? t('keyUnset')
+          : t('keyNotWritable'),
+      onEdit: (text: string) => {
+        props.onEdit(ref, text)
+      },
+    })
+  })
+  return createElement(SettingsForm, {
+    labels: {
+      unavailable: t('unavailable'),
+      readOnly: t('readOnly'),
+      saveFailed: t('saveFailed'),
+      save: t('save'),
+      saving: t('saving'),
+    },
+    state: {
+      available: state.ready,
+      writable: true,
+      dirty: state.dirty,
+      invalid: false,
+      saving: state.saving,
+      failed: state.failed,
+    },
+    onSave: props.onSave,
+    onDiscard: props.onDiscard,
+    children: fields,
+  })
 }
 
 /**
@@ -299,13 +354,36 @@ export function apply(ctx: ClientContext): void {
     'websearch-stack: credential invalidations',
   )
 
-  // Load first, then register: the inject face is read the moment the slot
-  // injects, so the snapshot it hands out must already be materialized.
+  // Read first, then register: the inject face is read the moment the slot
+  // injects, so the snapshot it hands out must already be materialized. The
+  // Host may not serve the Remote yet when the page mounts, so an unanswered
+  // describe retries with backoff instead of leaving the form disabled.
   card.effect(
     () => {
-      void store.load()
+      let disposed = false
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const attempt = (retries: number): void => {
+        void store.load().then((landed) => {
+          if (disposed || landed || retries >= DESCRIBE_RETRY_DELAYS_MS.length) return
+          timer = setTimeout(() => attempt(retries + 1), DESCRIBE_RETRY_DELAYS_MS[retries])
+        })
+      }
+      attempt(0)
+      return () => {
+        disposed = true
+        if (timer !== undefined) clearTimeout(timer)
+      }
     },
     'websearch-stack: initial describe',
+  )
+
+  // A reconnect re-serves the Host's Remote, so re-read the facts the drop
+  // may have outdated; retries alone stop once the first answer lands.
+  card.effect(
+    () => card.on?.('connection/reset', () => {
+      void store.load()
+    }),
+    'websearch-stack: reload after reconnect',
   )
 
   card.effect(

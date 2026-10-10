@@ -181,13 +181,40 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 
 ## Round 15 — UI Settings (card client web)
 
-- Scompartito in dettaglio il pacchetto di riferimento `dsh-client-ui-settings-web-search` 0.1.7-alpha.1: il formato bundle è `window.__ModuleLoader__.load({ id, factory })` con modulo CommonJS dentro e `require` dal registry del client.
+- Scompartito in dettaglio il pacchetto di riferimento `dsh-client-ui-settings-web-search` 0.2.0-rc.2: il formato bundle è `window.__ModuleLoader__.load({ id, factory })` con modulo CommonJS dentro e `require` dal registry del client.
 - Verificato il contratto reale dei pacchetti 0.2.0-rc.2: slot confermato **`plugins.bundle.config`** (keyed col nome del pacchetto; `plugins.item` è riservato ai plugin ufficiali), primitives `SettingsSecretField`, remote `credentials` con `describe`/`set`/`unset` + evento `credentials/reference-updated` (dsh-api-remotes 0.2.0-rc.2).
 - Servizio credenziali del Host: `@deepseek-ai/dsh-credentials` (`describe` → `{configured, source?, writable}`, mai il valore) con provider file `~/.dsh/.credentials.yaml` (`dsh-credentials-local`): ambiente read-only preminente.
 - Deciso con l'utente: la card gestisce SOLO le API keys (Tavily, Brave, TinyFish, Exa), non enabled_providers/SearXNG URL (restano via YAML).
-- Scritto `src/client/card.ts` (store snapshot, controller describe/set con bozze staged, salvataggio multiplo, componente React con `createElement`, `apply` che registra dictionary + invalidation + slot) — un file unico perché il bundle è un solo modulo.
+- Scritto `src/client/card.ts` (store snapshot, controller describe/set con bozze staged, salvataggio multiplo, componente React con `createElement`, `apply` che registra dictionary + invalidation + slot).
+- **Injection declarations aggiunte** (fix): `package.json` aggiunge `@deepseek-ai/dsh-client-ui-renderer` all'inject (necessario per la rendering del card). `src/client/card.ts` espone `inject = ['locale', 'slots', 'remote', 'remote.credentials']` per rispettare i guard di injection di cordis (accesso a proprietà context senza la dichiarazione fallisce prima di `apply`).
 - `scripts/bundle-client.mjs`: traspile con tsc (commonjs) e wrap nel formato ModuleLoader; produce `lib/client.js` + `lib/client/card.d.ts`. `npm run build` ora genera anche il bundle; `src/client` escluso dalla build host.
-- package.json: `exports["./client"]`, `dsh.client { platform: web, inject: [locale, ui-settings, ui-plugin-manager, api-remotes] }`, devDeps react + primitives + client-locale.
-- Test: 4 nuovi per il bundle client (formato loader, registrazione slot keyed, inject face, describe iniziale) — 33+9 verdi in totale, typecheck ok.
+- package.json: `exports["./client"]`, `dsh.client { platform: web, inject: [locale, ui-settings, ui-renderer, ui-plugin-manager, api-remotes] }`, devDeps react + primitives + client-locale.
+- Test del bundle: 4 test (formato loader, registrazione slot keyed, inject face, describe iniziale). Test totali: **33 verdi**, typecheck ok.
 - **Limite**: la card non è mai stata caricata dentro il web client reale (serve un client in esecuzione): smoke test solo su stub vm.
 - Scartata la strada `ctx.configForms` (esiste solo per namespace di provider; un bundle non ne ha uno) e `ctx.credentials` diretto (tecnicamente disponibile ma il client usa il remote; i pacchetti client non importano dsh-credentials).
+
+## Round 16 — UI fix pushed su GitHub
+
+- **Fix del non caricamento del client**: aggiunto l'inject del renderer (`dsh-client-ui-renderer`) e le declaration di injection (`inject` con `locale`, `slots`, `remote`, `remote.credentials`) nel card. Il formato ModuleLoader era corretto; il problema era i guard di injection di cordis che non prevedevano le proprietà consume.
+- Rigenerato gli artifacti: `npm run build` produce `lib/client.js` (10706 bytes) e `lib/client/card.d.ts` (3350 bytes).
+- Commit `f217f9b` ("Add client renderer inject and card inject declarations (injection guards)") pubblicato su GitHub con `git push origin main`.
+- Verificato: remote HEAD e main = `f217f9b`, identici con local, "main pushes to main (up to date)", working tree pulito.
+- Test: 33/33 verdi, typecheck pulito.
+
+## Round 17 — Card: form disabilitata e bottoni senza spazi (fix)
+
+- **Sintomo riportato dall'utente nel web client reale**: configurazione del plugin visibile, ma tutti i campi provider disabilitati (non scrivibili) e Save/Discard disabilitati e attaccati senza spazi.
+- **Causa 1 (tutto disabilitato)**: `ctx.remote.credentials.describe()` risolve un `RemoteResult` (`{ ok, value }`), non il record dei fatti. Il codice leggeva l'envelope: `answer[ref]` era `undefined` per ogni ref → `writable:false` ovunque → campi disabilitati; `ready` comunque true, `dirty` false → Save/Discard disabilitati. Verificato contro i pacchetti ufficiali 0.2.0-rc.2: descriptor `credentials/describe` in `@deepseek-ai/dsh-api-remotes/lib/client.js` (risultato `record(string(), {configured, source?, writable})`) e card ufficiale `@deepseek-ai/dsh-client-ui-settings-web-search`, che fa `if (!response.ok) return; const view = response.value[ref]` con default `writable: true`.
+- **Causa 2 (bottoni)**: `CardBody` creava due `<button>` nudi (nessuna className, nessun contenitore) come figli di una `div` vuota: bottoli nativi senza stile né spaziatura. Sostituiti dal frame condiviso `SettingsForm` delle primitives (colonna `.form`, footer flex con `gap: 8px`, save stilizzato, riga di errore). Rimosso il bottone Discard manuale: il frame scarta le bozze allo unmount, come fa la card ufficiale.
+- **Altre correzioni**: una risposta `{ ok: false }` di `set` conta ora come scrittura fallita (prima il `try/catch` non scattava mai: un Remote non rigetta per contratto). Retry con backoff (250ms/1s/4s) se l'Host non ha ancora servito il Remote al mount, più reload su `connection/reset`.
+- Test: +6 di regressione sul bundle (envelope RemoteResult, record plain, retry, write rifiutata che conserva la bozza, rendering nel frame). **39/39 verdi**, typecheck pulito, `lib/` rigenerato.
+
+## Round 18 — Config volatile: pagina Plugins, ordine di fallback, chiavi operative
+
+- **Richiesta dell'utente**: la pagina di configurazione deve far configurare provider di ricerca e ordine di fallback, non solo le chiavi.
+- **Config volatile** (`src/config.ts`): i cinque campi diventano `.volatile()` (Schemastery `Schema.prototype.volatile`), quindi la pagina Plugins li rende automaticamente da schema (guida §6 e §18: "Plugin Config — The product-owned Plugins page, automatically, when fields are `.volatile()`"). `StackConfig` ora è un record di `Volatile<T>` letti con `.get()`.
+- **Stack live** (`src/stack.ts`): `StackSearchProvider` prende `order()` (la catena letta a ogni richiesta), `backendOf(id)` e `cacheTtl()`: un edit volatile o una chiave ruotata hanno effetto sulla richiesta successiva, senza re-registrazione. Implementata anche la cache TTL (`cache_ttl_seconds`, prima campo morto).
+- **Chiavi operative** (`src/keys.ts`, nuovo): `KeyStore` risolve `TAVILY_API_KEY`, `BRAVE_SEARCH_API_KEY`, `TINYFISH_API_KEY`, `EXA_API_KEY` dal servizio `credentials` dell'Host (letto con `ctx.get`, quindi opzionale) con fallback `process.env`; refresh sull'evento `credentials/reference-updated`. Chiude il cerchio con la card: quello che la card scrive ora viene risolto per richiesta dal provider (guida §18: "Resolve per operation, never at registration").
+- **Backend come resolver** (`src/backends/*`): `apiKey`, `timeoutMs`, `limit`, `baseUrl` (SearXNG) sono funzioni lette per operazione; `available()` resta locale e sincrono (vincolo della seam).
+- **Registrazione sempre** (`src/index.ts`): il provider si registra una volta; `available()` risponde per la catena in forza, quindi catena vuota o senza chiavi rimette `web_search` al provider dell'host senza reload. Log della catena su `loader/volatile-update`.
+- Test: schema risolve in riferimenti volatile (+1), disponibilità live della catena (+1), refresh chiave da evento credentials (+1), ordine letto per operazione (+1), cache TTL (+2) — **46/46 verdi**, typecheck pulito, `lib/` rigenerato.

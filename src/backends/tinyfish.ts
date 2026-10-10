@@ -5,9 +5,13 @@ import { requestJson } from '../http.ts'
 const ENDPOINT = 'https://api.search.tinyfish.ai'
 
 export interface TinyfishOptions {
-  /** TinyFish API key sent as `X-API-Key`. `undefined` makes the backend unavailable. */
-  readonly apiKey: string | undefined
-  readonly timeoutMs: number
+  /** Read the TinyFish API key sent as `X-API-Key`. An empty read makes the
+   * backend unavailable. */
+  readonly apiKey: () => string | undefined
+  /** Read the request timeout, in milliseconds. */
+  readonly timeoutMs: () => number
+  /** Read the source cap to apply when the request names none. */
+  readonly limit: () => number
 }
 
 /** Wire shape of a TinyFish Search response, reduced to the fields the stack reads. */
@@ -32,15 +36,22 @@ export class TinyfishBackend implements WebSearchProvider {
   constructor(private readonly options: TinyfishOptions) {}
 
   available(): boolean {
-    return this.options.apiKey !== undefined && this.options.apiKey.length > 0
+    return this.key() !== undefined
+  }
+
+  /** The key for this request, read from the credential store per operation. */
+  private key(): string | undefined {
+    const apiKey = this.options.apiKey()
+    return typeof apiKey === 'string' && apiKey.length > 0 ? apiKey : undefined
   }
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
-    if (!this.available()) {
+    const apiKey = this.key()
+    if (apiKey === undefined) {
       throw new WebError('TinyFish API key is not configured', 'WEB_PROVIDER_UNAVAILABLE')
     }
 
-    const limit = request.maxResults ?? 5
+    const limit = request.maxResults ?? this.options.limit()
     const url = new URL(ENDPOINT)
     url.searchParams.set('query', request.query)
 
@@ -50,10 +61,10 @@ export class TinyfishBackend implements WebSearchProvider {
         method: 'GET',
         headers: {
           accept: 'application/json',
-          'x-api-key': this.options.apiKey as string,
+          'x-api-key': apiKey,
         },
       },
-      this.options.timeoutMs,
+      this.options.timeoutMs(),
       signal,
     )) as TinyfishResponse
 

@@ -10,8 +10,9 @@ Multi-provider web search for [DeepSeek Harness](https://github.com/deepseek-ai/
 
 - **Six search backends**: Tavily (keyless-capable), Parallel MCP (no credentials), SearXNG (self-hosted), Brave, TinyFish, Exa.
 - **Ordered fallback chain**: a recoverable error (network, timeout, rate limit, bad response) moves to the next backend; a terminal one aborts; if all fail the error lists every attempt.
+- **Live configuration**: the chain order, the SearXNG URL, the result cap, the timeout and the cache TTL are volatile fields, editable from the web client's Plugins page and applied on the next request.
 - **Web settings card** (client half): manage the four key-backed API keys from the web client's Plugins page, written through the Host's credentials store — never into a settings file.
-- **No secrets in YAML**: keys come from environment variables or the Host credential store.
+- **No secrets in YAML**: keys come from the Host credential store, with environment variables as the fallback.
 
 ## Install
 
@@ -31,17 +32,17 @@ dsh --profile web --dump-config > after.txt
 
 ## Configuration
 
-Options live in the `websearch-stack` section of the profile config.
+Every option below is a **volatile** field: the Plugins page in the dsh web client renders a form from this schema, and an edit lands on the next request with no restart — the plugin instance is preserved, including the provider registration. The same fields can also be set in the `websearch-stack` section of the profile config for the initial value.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `enabled_providers` | `['tavily', 'parallel-mcp']` | Fallback chain, in order. Values: `tavily`, `parallel-mcp`, `searxng`, `brave`, `tinyfish`, `exa`. Empty list = plugin disabled. |
+| `enabled_providers` | `['tavily', 'parallel-mcp']` | Fallback chain, in order. Values: `tavily`, `parallel-mcp`, `searxng`, `brave`, `tinyfish`, `exa`. Empty list leaves `web_search` to the host's own provider. |
 | `searxng_url` | — | Base URL of a self-hosted SearXNG instance, e.g. `http://localhost:8080`. Required for `searxng`. |
-| `default_max_results` | `5` | Maximum sources per query (1–20). |
+| `default_max_results` | `5` | Maximum sources per query when the request names none (1–20). |
 | `default_timeout_ms` | `10000` | Per-backend request timeout in milliseconds (1 000–60 000). |
 | `cache_ttl_seconds` | `60` | Cache TTL for identical queries. `0` disables the cache. |
 
-Example putting SearXNG at the head of the chain:
+The profile config is the boot-time value of the same fields, so a chain written there is what the page starts from:
 
 > The exact shape of the `config:` line in a profile patch is not yet verified with `dsh --profile web --dump-config` on a profile with the plugin installed. Check it first. The plugin guide (`docs/PLUGIN-GUIDE.md`, `cordis.patch.yml` section) indicates a row may carry `config:`:
 
@@ -76,7 +77,7 @@ search:
 | `tinyfish` | `TINYFISH_API_KEY` | `X-API-Key`. Not verified with a real key. |
 | `exa` | `EXA_API_KEY` | `x-api-key`, `POST /search`. Not verified with a real key. |
 
-Keys are read from the environment variables above. The config YAML never holds secrets.
+Keys are read from the Host credential store, with the environment variables above as the fallback: a key written from the settings card is resolved per request, so it needs no environment export. The config YAML never holds secrets.
 
 ### Settings card (web client)
 
@@ -84,9 +85,8 @@ The plugin ships a configuration card for the dsh web client (`dsh.client.platfo
 
 - the state badge shows only whether a key is configured (`describe`), never the value;
 - what you write lands in the Host credential store (e.g. `$DSH_HOME/.credentials.yaml`), not in any settings document;
+- the provider re-resolves the reference on the Host's `credentials/reference-updated` event, so a key written from the page takes effect on the next request without a reboot;
 - a field left blank does not clear the stored key.
-
-A key stored from the page loses to a differently named environment export: an ambient variable is read-only and wins, so what the page writes takes effect only when the environment does not also export that name.
 
 > **UI status**: implemented and covered by bundle smoke tests, but not yet exercised inside a running web client. Not part of the MVP verification.
 
@@ -101,9 +101,12 @@ The `web` profile already ships `web-search-deepseek`. That provider is usable o
 
 The seam accepts a single usable search provider when none is configured. So the plugin registers exactly one provider, `websearch-stack`, that walks the backends in order:
 
-- a recoverable error (network, timeout, rate limit, invalid response) moves to the next backend;
+- a backend that is not available (no key, no SearXNG URL) is skipped before any request;
+- a recoverable error (network, timeout, rate limit, invalid response, auth or credits) moves to the next backend;
 - a terminal error (e.g. cancellation) stops the chain and rethrows;
 - if all fail, the error lists every attempt.
+
+The chain order is read on every request, so reordering it on the Plugins page changes the very next search. When the chain is empty — or every backend in it is unavailable — `available()` is false and the seam falls back to the host's own provider.
 
 ## Development
 
@@ -120,7 +123,7 @@ npm run bundle:client # rebuild only lib/client.js (ModuleLoader bundle)
 ## Known limitations
 
 - **Live services partially verified.** Tavily keyless and Parallel MCP verified live. Brave, TinyFish, Exa and SearXNG are not yet: they need API keys or a local instance.
-- **UI never run in a real client.** The settings card exists (keys via `credentials`), but has never been exercised inside a running web client; backend enablement stays YAML-only.
+- **UI never run in a real client.** The settings card exists (keys via `credentials`) and the config fields are declared volatile, but neither has been exercised inside a running web client.
 - **Coexistence with DeepSeek.** With `DEEPSEEK_API_KEY` set, `searchProvider` must be pinned in the `web` service config (see above).
 - **No fetch.** Page fetching is handled by DSH's `dsh-web-fetch-http` provider, not this plugin.
 - **Not a sandbox.** The code runs inside the host process with its privileges, like every dsh plugin.

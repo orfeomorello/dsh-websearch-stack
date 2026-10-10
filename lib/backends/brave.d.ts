@@ -1,8 +1,12 @@
 import type { WebSearchProvider, WebSearchRequest, WebSearchResult } from '@deepseek-ai/dsh-web';
 export interface BraveOptions {
-    /** Brave Search API subscription token. `undefined` makes the backend unavailable. */
-    readonly apiKey: string | undefined;
-    readonly timeoutMs: number;
+    /** Read the Brave Search API subscription token. An empty read makes the
+     * backend unavailable. */
+    readonly apiKey: () => string | undefined;
+    /** Read the request timeout, in milliseconds. */
+    readonly timeoutMs: () => number;
+    /** Read the source cap to apply when the request names none. */
+    readonly limit: () => number;
 }
 /**
  * Brave Search web backend. Documented at
@@ -15,5 +19,7 @@ export declare class BraveBackend implements WebSearchProvider {
     readonly id = "brave";
     constructor(options: BraveOptions);
     available(): boolean;
+    /** The token for this request, read from the credential store per operation. */
+    private key;
     search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;
 }

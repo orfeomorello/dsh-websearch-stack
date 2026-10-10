@@ -55,7 +55,7 @@ function compile() {
         return { createElement: (type, props, ...children) => ({ type, props, children }), useState: (init) => [typeof init === 'function' ? init() : init, () => {}], useEffect: () => {} }
       }
       if (spec === '@deepseek-ai/dsh-client-ui-primitives') {
-        return { SettingsSecretField: 'SettingsSecretField' }
+        return { SettingsSecretField: 'SettingsSecretField', SettingsForm: 'SettingsForm' }
       }
       throw new Error(`unexpected require: ${spec}`)
     },
@@ -150,7 +150,7 @@ test('the inject face exposes the controller actions and English dictionaries', 
     window: { __ModuleLoader__: { load: (def) => def } },
     require: (spec) => {
       if (spec === 'react') return { createElement: (t, p, ...c) => ({ t, p, c }), useState: (i) => [typeof i === 'function' ? i() : i, () => {}], useEffect: () => {} }
-      if (spec === '@deepseek-ai/dsh-client-ui-primitives') return { SettingsSecretField: 'S' }
+      if (spec === '@deepseek-ai/dsh-client-ui-primitives') return { SettingsSecretField: 'S', SettingsForm: 'SettingsForm' }
       throw new Error(spec)
     },
     console,
@@ -172,59 +172,184 @@ test('the inject face exposes the controller actions and English dictionaries', 
   assert.ok(dict.dict.description.includes('API keys'))
 })
 
-test('initial describe publishes ready state with all four references', async () => {
-  const waits = []
-  const ctx = {
-    locale: { bind: () => (k) => k, register: () => () => {} },
-    remote: {
-      credentials: {
-        describe: async (refs) => {
-          const p = Promise.resolve(Object.fromEntries(refs.map((r) => [r, { configured: r === 'TAVILY_API_KEY', writable: true }])))
-          waits.push(p)
-          return p
-        },
-        set: async () => {},
-      },
-      $on: () => () => {},
+/** Mount the bundle against a stub client context. `credentials` is the
+ * `remote.credentials` double; it must answer a `RemoteResult`, the shape the
+ * Host's Remote actually resolves. The react stub executes function
+ * components so the rendered tree can be inspected. */
+function mount(credentials) {
+  const primitives = {
+    SettingsSecretField: 'SettingsSecretField',
+    SettingsForm: 'SettingsForm',
+  }
+  const react = {
+    createElement: (type, props, ...children) => {
+      if (children.length === 0 && props && props.children !== undefined) children = [props.children]
+      const element = { type, props: { ...props }, children }
+      return typeof type === 'function' ? type(element.props) : element
     },
-    slots: {
-      inject: (name, callback) => { callback() },
-      register: () => () => {},
-    },
-    effect: (factory) => factory(),
+    useState: (init) => [typeof init === 'function' ? init() : init, () => {}],
+    useEffect: () => {},
   }
   const sandbox = {
     window: { __ModuleLoader__: { load: (def) => def } },
     require: (spec) => {
-      if (spec === 'react') return { createElement: (t, p, ...c) => ({ t, p, c }), useState: (i) => [typeof i === 'function' ? i() : i, () => {}], useEffect: () => {} }
-      if (spec === '@deepseek-ai/dsh-client-ui-primitives') return { SettingsSecretField: 'S' }
+      if (spec === 'react') return react
+      if (spec === '@deepseek-ai/dsh-client-ui-primitives') return primitives
       throw new Error(spec)
     },
+    setTimeout,
+    clearTimeout,
     console,
   }
   vm.createContext(sandbox)
   const def = vm.runInContext(source, sandbox)
-  let store
-  const originalApply = def.factory(sandbox.require).apply
-  // Capture the store through the inject face: register() runs synchronously
-  // inside apply, so the closure below sees it.
-  const probeCtx = {
-    ...ctx,
+  const face = {}
+  let component
+  const ctx = {
+    locale: { bind: () => (key) => key, register: () => () => {} },
+    remote: { credentials, $on: () => () => {} },
     slots: {
-      inject: ctx.slots.inject,
-      register: (options) => {
-        store = options.inject().hooks.card
+      inject: (name, callback) => {
+        callback()
+        return () => {}
+      },
+      register: (options, comp) => {
+        component = comp
+        Object.assign(face, options.inject())
         return () => {}
       },
     },
+    effect: (factory) => factory(),
   }
-  originalApply(probeCtx)
-  assert.ok(store, 'card store reachable through the inject face')
-  await Promise.all(waits)
-  await new Promise((resolve) => setImmediate(resolve))
+  def.factory(sandbox.require).apply(ctx)
+  return { face, component, store: face.hooks.card }
+}
+
+/** A describe double answering the Host's `RemoteResult` shape. */
+function remoteDescribe(facts) {
+  return {
+    describe: async (refs) => ({ ok: true, value: Object.fromEntries(refs.map((ref) => [ref, facts[ref] ?? { configured: false, writable: true }])) }),
+    set: async () => ({ ok: true }),
+  }
+}
+
+/** Let every pending microtask and timer turn run. */
+async function settle(ms = 0) {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+test('initial describe publishes ready state with all four references', async () => {
+  const { store } = mount(remoteDescribe({ TAVILY_API_KEY: { configured: true, writable: true } }))
+  await settle()
   const snapshot = store.getSnapshot()
   assert.equal(snapshot.ready, true)
   const refs = Object.keys(snapshot.keys).sort()
   assert.deepEqual(refs, ['BRAVE_SEARCH_API_KEY', 'EXA_API_KEY', 'TAVILY_API_KEY', 'TINYFISH_API_KEY'])
   assert.equal(snapshot.keys.TAVILY_API_KEY.configured, true)
 })
+
+test('a RemoteResult-wrapped describe reads its payload, not the envelope', async () => {
+  // The regression this pins: reading the resolved answer itself left every
+  // reference absent, so every control rendered disabled and untypable.
+  const { store } = mount(remoteDescribe({
+    TAVILY_API_KEY: { configured: true, writable: true },
+    BRAVE_SEARCH_API_KEY: { configured: false, writable: true },
+  }))
+  await settle()
+  const snapshot = store.getSnapshot()
+  assert.equal(snapshot.ready, true)
+  assert.equal(snapshot.keys.TAVILY_API_KEY.configured, true)
+  assert.equal(snapshot.keys.TAVILY_API_KEY.writable, true)
+  assert.equal(snapshot.keys.BRAVE_SEARCH_API_KEY.configured, false)
+  assert.equal(snapshot.keys.BRAVE_SEARCH_API_KEY.writable, true)
+  // A missing entry is not a refusal: the field stays writable until the
+  // Host says otherwise.
+  assert.equal(snapshot.keys.EXA_API_KEY.writable, true)
+})
+
+test('a plain-record describe is still read as its payload', async () => {
+  const { store } = mount({
+    describe: async (refs) => Object.fromEntries(refs.map((ref) => [ref, { configured: ref === 'EXA_API_KEY', writable: true }])),
+    set: async () => ({ ok: true }),
+  })
+  await settle()
+  const snapshot = store.getSnapshot()
+  assert.equal(snapshot.ready, true)
+  assert.equal(snapshot.keys.EXA_API_KEY.configured, true)
+})
+
+test('a refused describe retries instead of leaving the form disabled', async () => {
+  let calls = 0
+  const { store } = mount({
+    describe: async () => {
+      calls += 1
+      return calls === 1 ? { ok: false, error: new Error('gateway/unavailable') } : { ok: true, value: {} }
+    },
+    set: async () => ({ ok: true }),
+  })
+  await settle()
+  assert.equal(store.getSnapshot().ready, false, 'first refusal leaves the form waiting')
+  await settle(400)
+  assert.ok(calls >= 2, 'the card retried the describe')
+  assert.equal(store.getSnapshot().ready, true, 'the retry landed')
+})
+
+test('a refused write keeps its draft and reports the failure', async () => {
+  let accept = false
+  const { store } = mount({
+    describe: async () => ({ ok: true, value: {} }),
+    set: async () => (accept ? { ok: true } : { ok: false, error: new Error('credentials/read-only') }),
+  })
+  await settle()
+  store.edit('TAVILY_API_KEY', 'sk-live')
+  await store.save()
+  assert.equal(store.getSnapshot().failed, true)
+  assert.equal(store.getSnapshot().dirty, true)
+  assert.equal(store.stagedOf('TAVILY_API_KEY'), 'sk-live', 'the rejected draft stays for the user')
+  accept = true
+  await store.save()
+  assert.equal(store.getSnapshot().failed, false)
+  assert.equal(store.getSnapshot().dirty, false)
+  assert.equal(store.stagedOf('TAVILY_API_KEY'), '')
+})
+
+test('the page view renders the shared form frame, not bare buttons', async () => {
+  const { component } = mount(remoteDescribe({}))
+  await settle()
+  const idle = { ready: false, dirty: false, failed: false, saving: false, keys: {} }
+  const tree = component({
+    view: 'page',
+    useCard: () => idle,
+    t: (key) => key,
+    edit: () => {},
+    save: () => {},
+    discard: () => {},
+    staged: () => ({}),
+  })
+  assert.equal(tree.type, 'SettingsForm', 'controls render inside the shared settings form')
+  assert.equal(tree.props.state.available, false, 'frame reports unavailable until the Host answers')
+  const fields = tree.children[0]
+  assert.ok(Array.isArray(fields) && fields.length === 4, 'one control per credential reference')
+  const kinds = []
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk)
+    if (node !== null && typeof node === 'object' && 'type' in node) {
+      kinds.push(node.type)
+      ;(node.children ?? []).forEach(walk)
+    }
+  }
+  walk(tree)
+  assert.ok(!kinds.includes('button'), 'no unstyled bare buttons outside the frame')
+  // The summary view stays a one-liner.
+  const summary = component({
+    view: 'summary',
+    useCard: () => idle,
+    t: (key) => key,
+    edit: () => {},
+    save: () => {},
+    discard: () => {},
+    staged: () => ({}),
+  })
+  assert.equal(summary, 'description')
+})
+

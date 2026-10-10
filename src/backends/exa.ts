@@ -5,9 +5,13 @@ import { requestJson } from '../http.ts'
 const ENDPOINT = 'https://api.exa.ai/search'
 
 export interface ExaOptions {
-  /** Exa API key sent as `x-api-key`. `undefined` makes the backend unavailable. */
-  readonly apiKey: string | undefined
-  readonly timeoutMs: number
+  /** Read the Exa API key sent as `x-api-key`. An empty read makes the
+   * backend unavailable. */
+  readonly apiKey: () => string | undefined
+  /** Read the request timeout, in milliseconds. */
+  readonly timeoutMs: () => number
+  /** Read the source cap to apply when the request names none. */
+  readonly limit: () => number
 }
 
 /** Wire shape of one Exa search result, reduced to the fields the stack reads. */
@@ -35,15 +39,22 @@ export class ExaBackend implements WebSearchProvider {
   constructor(private readonly options: ExaOptions) {}
 
   available(): boolean {
-    return this.options.apiKey !== undefined && this.options.apiKey.length > 0
+    return this.key() !== undefined
+  }
+
+  /** The key for this request, read from the credential store per operation. */
+  private key(): string | undefined {
+    const apiKey = this.options.apiKey()
+    return typeof apiKey === 'string' && apiKey.length > 0 ? apiKey : undefined
   }
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
-    if (!this.available()) {
+    const apiKey = this.key()
+    if (apiKey === undefined) {
       throw new WebError('Exa API key is not configured', 'WEB_PROVIDER_UNAVAILABLE')
     }
 
-    const limit = request.maxResults ?? 5
+    const limit = request.maxResults ?? this.options.limit()
     const body = {
       query: request.query,
       // Exa accepts 1–100; the seam enforces the final bound regardless.
@@ -58,11 +69,11 @@ export class ExaBackend implements WebSearchProvider {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-api-key': this.options.apiKey as string,
+          'x-api-key': apiKey,
         },
         body: JSON.stringify(body),
       },
-      this.options.timeoutMs,
+      this.options.timeoutMs(),
       signal,
     )) as ExaResponse
 

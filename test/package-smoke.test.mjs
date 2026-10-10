@@ -8,6 +8,9 @@ import YAML from 'yaml'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
+/** Let the plugin's async key resolution settle. */
+const settle = () => new Promise((resolve) => setImmediate(resolve))
+
 test('package.json main and exports point at files that exist', async () => {
   const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   await access(join(root, pkg.main))
@@ -35,29 +38,115 @@ test('exports the plugin contract: name, inject, Config, apply', () => {
   assert.equal(typeof apply, 'function')
 })
 
-test('apply() registers exactly one search provider when backends are enabled', () => {
-  const registered = []
-  const ctx = { web: { registerSearchProvider: (p) => { registered.push(p); return () => {} } } }
-  apply(ctx, {
+test('the Config schema resolves every field as a volatile reference', () => {
+  // This is the shape cordis hands to apply: each field a reference with .get(),
+  // which is what makes the Plugins page able to edit them in place.
+  const resolved = Config({ enabled_providers: ['exa', 'tavily'] })
+  assert.deepEqual(resolved.enabled_providers.get(), ['exa', 'tavily'])
+  assert.equal(resolved.searxng_url.get(), undefined)
+  assert.equal(resolved.default_max_results.get(), 5)
+  assert.equal(resolved.default_timeout_ms.get(), 10000)
+  assert.equal(resolved.cache_ttl_seconds.get(), 60)
+  // Defaults fill the chain when nothing is configured.
+  const defaults = Config({})
+  assert.deepEqual(defaults.enabled_providers.get(), ['tavily', 'parallel-mcp'])
+  // An unknown backend is rejected by the schema, so the page cannot write one.
+  assert.throws(() => Config({ enabled_providers: ['nope'] }))
+})
+
+/** A resolved plugin config: every field is a volatile reference, and `edit`
+ * mutates one the way the loader does after a volatile edit on the Plugins page. */function configOf(overrides = {}) {
+  let value = {
     enabled_providers: ['tavily', 'searxng'],
     searxng_url: 'http://localhost:8080',
     default_max_results: 5,
     default_timeout_ms: 10000,
     cache_ttl_seconds: 60,
-  })
+    ...overrides,
+  }
+  return {
+    enabled_providers: { get: () => value.enabled_providers },
+    searxng_url: { get: () => value.searxng_url },
+    default_max_results: { get: () => value.default_max_results },
+    default_timeout_ms: { get: () => value.default_timeout_ms },
+    cache_ttl_seconds: { get: () => value.cache_ttl_seconds },
+    edit: (part) => { value = { ...value, ...part } },
+  }
+}
+
+/** A stub client context capturing what apply registers. */
+function stubContext({ credentials } = {}) {
+  const registered = []
+  const events = {}
+  const logs = []
+  return {
+    registered,
+    events,
+    logs,
+    ctx: {
+      web: { registerSearchProvider: (p) => { registered.push(p); return () => {} } },
+      get: (service) => (service === 'credentials' ? credentials : undefined),
+      effect: (factory) => factory(),
+      on: (name, listener) => { events[name] = listener; return () => { delete events[name] } },
+      logger: () => ({ info: (message, ...args) => logs.push([message, ...args]) }),
+    },
+  }
+}
+
+test('apply() registers exactly one search provider when backends are enabled', () => {
+  const { ctx, registered } = stubContext()
+  apply(ctx, configOf())
   assert.equal(registered.length, 1)
   assert.equal(registered[0].id, 'websearch-stack')
+  assert.equal(registered[0].available(), true)
 })
 
-test('apply() registers nothing when enabled_providers is empty', () => {
-  const registered = []
-  const ctx = { web: { registerSearchProvider: (p) => { registered.push(p); return () => {} } } }
-  apply(ctx, {
-    enabled_providers: [],
-    searxng_url: undefined,
-    default_max_results: 5,
-    default_timeout_ms: 10000,
-    cache_ttl_seconds: 60,
+test('the chain in force is what availability answers for, live', () => {
+  // Registration happens once and always: disabling every backend takes effect
+  // with no reload, leaving web_search to the host's own provider.
+  const { ctx, registered } = stubContext()
+  const config = configOf()
+  apply(ctx, config)
+  const provider = registered[0]
+  assert.equal(provider.available(), true)
+  config.edit({ enabled_providers: [] })
+  assert.equal(provider.available(), false)
+  config.edit({ enabled_providers: ['brave'] })
+  // Brave is keyed and no key is resolved, so it stays unavailable.
+  assert.equal(provider.available(), false)
+  config.edit({ enabled_providers: ['tavily'] })
+  // Tavily runs keyless, so it is available as soon as it is enabled.
+  assert.equal(provider.available(), true)
+})
+
+test('a credential change re-resolves the key and lands with no reload', async () => {
+  const store = {}
+  const { ctx, registered, events } = stubContext({
+    credentials: { resolve: async (ref) => ({ value: store[ref] }) },
   })
-  assert.equal(registered.length, 0)
+  apply(ctx, configOf({ enabled_providers: ['exa'] }))
+  await settle()
+  assert.equal(registered[0].available(), false)
+  store.EXA_API_KEY = 'sk-written-by-the-card'
+  events['credentials/reference-updated']('EXA_API_KEY')
+  await settle()
+  assert.equal(registered[0].available(), true, 'the refreshed key landed without a reload')
+  // A reference the plugin does not manage changes nothing and crashes nothing.
+  events['credentials/reference-updated']('SOME_OTHER_REF')
+  await settle()
+  assert.equal(registered[0].available(), true)
+})
+
+test('apply() falls back to environment keys without a credentials service', async () => {
+  const previous = process.env.EXA_API_KEY
+  process.env.EXA_API_KEY = 'sk-from-env'
+  try {
+    const { ctx, registered } = stubContext()
+    apply(ctx, configOf({ enabled_providers: ['exa'] }))
+    await settle()
+    assert.equal(registered[0].available(), true, 'the environment key was resolved at startup')
+  } finally {
+    if (previous === undefined) delete process.env.EXA_API_KEY
+    else process.env.EXA_API_KEY = previous
+  }
 })

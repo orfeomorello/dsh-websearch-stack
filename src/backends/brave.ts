@@ -5,9 +5,13 @@ import { requestJson } from '../http.ts'
 const ENDPOINT = 'https://api.search.brave.com/res/v1/web/search'
 
 export interface BraveOptions {
-  /** Brave Search API subscription token. `undefined` makes the backend unavailable. */
-  readonly apiKey: string | undefined
-  readonly timeoutMs: number
+  /** Read the Brave Search API subscription token. An empty read makes the
+   * backend unavailable. */
+  readonly apiKey: () => string | undefined
+  /** Read the request timeout, in milliseconds. */
+  readonly timeoutMs: () => number
+  /** Read the source cap to apply when the request names none. */
+  readonly limit: () => number
 }
 
 /** Wire shape of a Brave web search response, reduced to the fields the stack reads. */
@@ -34,15 +38,22 @@ export class BraveBackend implements WebSearchProvider {
   constructor(private readonly options: BraveOptions) {}
 
   available(): boolean {
-    return this.options.apiKey !== undefined && this.options.apiKey.length > 0
+    return this.key() !== undefined
+  }
+
+  /** The token for this request, read from the credential store per operation. */
+  private key(): string | undefined {
+    const apiKey = this.options.apiKey()
+    return typeof apiKey === 'string' && apiKey.length > 0 ? apiKey : undefined
   }
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
-    if (!this.available()) {
+    const apiKey = this.key()
+    if (apiKey === undefined) {
       throw new WebError('Brave API key is not configured', 'WEB_PROVIDER_UNAVAILABLE')
     }
 
-    const limit = request.maxResults ?? 5
+    const limit = request.maxResults ?? this.options.limit()
     const url = new URL(ENDPOINT)
     url.searchParams.set('q', request.query)
     // Brave caps `count` at 20; the seam enforces the final bound regardless.
@@ -54,10 +65,10 @@ export class BraveBackend implements WebSearchProvider {
         method: 'GET',
         headers: {
           accept: 'application/json',
-          'x-subscription-token': this.options.apiKey as string,
+          'x-subscription-token': apiKey,
         },
       },
-      this.options.timeoutMs,
+      this.options.timeoutMs(),
       signal,
     )) as BraveResponse
 

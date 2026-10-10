@@ -1,8 +1,12 @@
 import type { WebSearchProvider, WebSearchRequest, WebSearchResult } from '@deepseek-ai/dsh-web';
 export interface SearxngOptions {
-    /** Base URL of the SearXNG instance. `undefined` makes the backend unavailable. */
-    readonly baseUrl: string | undefined;
-    readonly timeoutMs: number;
+    /** Read the base URL of the SearXNG instance. An empty read makes the
+     * backend unavailable. */
+    readonly baseUrl: () => string | undefined;
+    /** Read the request timeout, in milliseconds. */
+    readonly timeoutMs: () => number;
+    /** Read the source cap to apply when the request names none. */
+    readonly limit: () => number;
     readonly language: string;
 }
 /**

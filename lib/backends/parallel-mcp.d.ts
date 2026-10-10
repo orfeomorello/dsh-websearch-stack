@@ -1,6 +1,9 @@
 import type { WebSearchProvider, WebSearchRequest, WebSearchResult } from '@deepseek-ai/dsh-web';
 export interface ParallelMcpOptions {
-    readonly timeoutMs: number;
+    /** Read the request timeout, in milliseconds. */
+    readonly timeoutMs: () => number;
+    /** Read the source cap to apply when the request names none. */
+    readonly limit: () => number;
 }
 /**
  * Parallel search through its remote MCP server over Streamable HTTP, via JSON-RPC

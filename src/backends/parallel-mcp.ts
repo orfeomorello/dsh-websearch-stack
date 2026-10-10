@@ -5,7 +5,10 @@ import { requestJson } from '../http.ts'
 const MCP_ENDPOINT = 'https://search.parallel.ai/mcp'
 
 export interface ParallelMcpOptions {
-  readonly timeoutMs: number
+  /** Read the request timeout, in milliseconds. */
+  readonly timeoutMs: () => number
+  /** Read the source cap to apply when the request names none. */
+  readonly limit: () => number
 }
 
 /** One result as returned by Parallel's `web_search` tool (verified via `tools/list`). */
@@ -65,7 +68,7 @@ export class ParallelMcpBackend implements WebSearchProvider {
         },
         body: JSON.stringify(body),
       },
-      this.options.timeoutMs,
+      this.options.timeoutMs(),
       signal,
     )) as JsonRpcResponse
 
@@ -82,7 +85,7 @@ export class ParallelMcpBackend implements WebSearchProvider {
       throw new WebError('Parallel MCP response has no structured results', 'WEB_PROVIDER_ERROR')
     }
 
-    const limit = request.maxResults ?? 5
+    const limit = request.maxResults ?? this.options.limit()
     const all = items
       .filter((item) => typeof item.url === 'string' && item.url.length > 0)
       .map((item) => {
