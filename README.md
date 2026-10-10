@@ -1,18 +1,27 @@
 # dsh-websearch-stack
 
-Multi-provider web search for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). The plugin registers one search provider on the `ctx.web` seam. That provider runs an ordered fallback chain over the backends you enable.
+[![CI](https://github.com/<owner>/dsh-websearch-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/dsh-websearch-stack/actions/workflows/ci.yml)
 
-> **Stato**: versione 0.1.0, MVP. Sei backend sono implementati (Tavily, Parallel MCP, SearXNG, Brave, TinyFish, Exa) e testati con mock. Verificati contro il servizio reale: **Tavily keyless** e **Parallel MCP**. Gli altri richiedono una chiave o un'istanza e non sono ancora verificati: vedi [Limiti noti](#limiti-noti).
+Multi-provider web search for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). The plugin registers one search provider on the `ctx.web` seam; that provider runs an ordered fallback chain over the backends you enable.
 
-## Installazione
+> **Status**: v0.1.0, MVP. Six backends implemented and unit-tested. Verified live: **Tavily keyless** and **Parallel MCP**. The others need an API key or a local instance and are not yet verified — see [Known limitations](#known-limitations).
 
-Il plugin si installa direttamente da GitHub. `lib/` è committato, quindi non serve alcun passo di build.
+## Features
+
+- **Six search backends**: Tavily (keyless-capable), Parallel MCP (no credentials), SearXNG (self-hosted), Brave, TinyFish, Exa.
+- **Ordered fallback chain**: a recoverable error (network, timeout, rate limit, bad response) moves to the next backend; a terminal one aborts; if all fail the error lists every attempt.
+- **Web settings card** (client half): manage the four key-backed API keys from the web client's Plugins page, written through the Host's credentials store — never into a settings file.
+- **No secrets in YAML**: keys come from environment variables or the Host credential store.
+
+## Install
+
+`lib/` is committed, so installing from GitHub needs no build step.
 
 ```bash
 dsh plugin --profile web add github:<owner>/dsh-websearch-stack
 ```
 
-Per un profilo di prova prima di toccare quello principale:
+To try on a disposable profile first:
 
 ```bash
 dsh --profile web --dump-config > before.txt
@@ -20,21 +29,21 @@ dsh plugin --profile web add github:<owner>/dsh-websearch-stack
 dsh --profile web --dump-config > after.txt
 ```
 
-## Configurazione
+## Configuration
 
-Le opzioni vivono nella sezione `websearch-stack` del config del profilo.
+Options live in the `websearch-stack` section of the profile config.
 
-| Opzione | Default | Significato |
+| Option | Default | Meaning |
 |---|---|---|
-| `enabled_providers` | `['tavily', 'parallel-mcp']` | Catena di fallback, in ordine. Valori: `tavily`, `parallel-mcp`, `searxng`, `brave`, `tinyfish`, `exa`. Lista vuota = plugin disattivato. |
-| `searxng_url` | — | URL base di un'istanza SearXNG, es. `http://localhost:8080`. Necessario per `searxng`. |
-| `default_max_results` | `5` | Numero massimo di fonti per query (1–20). |
-| `default_timeout_ms` | `10000` | Timeout per singolo backend (1 000–60 000 ms). |
-| `cache_ttl_seconds` | `60` | TTL della cache per query identiche. `0` la disattiva. |
+| `enabled_providers` | `['tavily', 'parallel-mcp']` | Fallback chain, in order. Values: `tavily`, `parallel-mcp`, `searxng`, `brave`, `tinyfish`, `exa`. Empty list = plugin disabled. |
+| `searxng_url` | — | Base URL of a self-hosted SearXNG instance, e.g. `http://localhost:8080`. Required for `searxng`. |
+| `default_max_results` | `5` | Maximum sources per query (1–20). |
+| `default_timeout_ms` | `10000` | Per-backend request timeout in milliseconds (1 000–60 000). |
+| `cache_ttl_seconds` | `60` | Cache TTL for identical queries. `0` disables the cache. |
 
-Esempio con SearXNG in testa alla catena:
+Example putting SearXNG at the head of the chain:
 
-La forma esatta della riga `config:` nel patch del profilo non è ancora verificata con `dsh --dump-config` su un profilo con il plugin installato. Prima di usarla, controlla con `dsh --profile web --dump-config`. La guida (`docs/PLUGIN-GUIDE.md`, sezione `cordis.patch.yml`) indica che una riga può avere `config:`:
+> The exact shape of the `config:` line in a profile patch is not yet verified with `dsh --profile web --dump-config` on a profile with the plugin installed. Check it first. The plugin guide (`docs/PLUGIN-GUIDE.md`, `cordis.patch.yml` section) indicates a row may carry `config:`:
 
 ```yaml
 - insert:
@@ -47,7 +56,7 @@ La forma esatta della riga `config:` nel patch del profilo non è ancora verific
 
 ### SearXNG
 
-Serve un'istanza con il formato JSON abilitato. Nel `settings.yml` di SearXNG:
+Needs an instance with the JSON format enabled. In SearXNG's `settings.yml`:
 
 ```yaml
 search:
@@ -56,65 +65,66 @@ search:
     - json
 ```
 
-## Backend
+## Backends
 
-| Id | Chiave | Note |
+| Id | Key | Notes |
 |---|---|---|
-| `tavily` | `TAVILY_API_KEY` (opzionale) | Senza chiave invia l'header `x-tavily-access-mode: keyless` (verificato live). Con chiave, `Bearer`. |
-| `parallel-mcp` | no | JSON-RPC `tools/call` su `web_search` (argomenti `objective` e `search_queries`), senza credenziali. Verificato live. |
-| `searxng` | no | Istanza self-hosted, richiede `searxng_url`. Non verificato (serve un'istanza). |
-| `brave` | `BRAVE_SEARCH_API_KEY` | `X-Subscription-Token`. Non verificato con chiave reale. |
-| `tinyfish` | `TINYFISH_API_KEY` | Header `X-API-Key`. Non verificato con chiave reale. |
-| `exa` | `EXA_API_KEY` | Header `x-api-key`, `POST /search`. Non verificato con chiave reale. |
+| `tavily` | `TAVILY_API_KEY` (optional) | Without a key sends `x-tavily-access-mode: keyless` (verified live). With a key, `Bearer`. |
+| `parallel-mcp` | none | JSON-RPC `tools/call` on `web_search` (arguments `objective` and `search_queries`), no credentials. Verified live. |
+| `searxng` | none | Self-hosted instance, requires `searxng_url`. Not verified (needs an instance). |
+| `brave` | `BRAVE_SEARCH_API_KEY` | `X-Subscription-Token`. Not verified with a real key. |
+| `tinyfish` | `TINYFISH_API_KEY` | `X-API-Key`. Not verified with a real key. |
+| `exa` | `EXA_API_KEY` | `x-api-key`, `POST /search`. Not verified with a real key. |
 
-Le chiavi vengono lette dalle variabili d'ambiente indicate. Il config YAML non contiene segreti.
+Keys are read from the environment variables above. The config YAML never holds secrets.
 
-### Pagina impostazioni (client web)
+### Settings card (web client)
 
-Il plugin include anche una scheda di configurazione per il client web di DSH (`dsh.client.platform: "web"`). Appare sulla pagina **Plugins**, nel dettaglio del bundle `dsh-websearch-stack`, e gestisce le quattro chiavi tramite il servizio `credentials` del Host:
+The plugin ships a configuration card for the dsh web client (`dsh.client.platform: "web"`). It appears on the **Plugins** page under the `dsh-websearch-stack` bundle and manages the four key-backed API keys through the Host's `credentials` service:
 
-- lo stato mostra solo se una chiave è configurata (`describe`), mai il valore;
-- il valore scritto non passa da nessun documento di impostazioni (`set` nel credentials store del Host, es. `$DSH_HOME/.credentials.yaml`);
-- un campo lasciato vuoto non cancella la chiave esistente.
+- the state badge shows only whether a key is configured (`describe`), never the value;
+- what you write lands in the Host credential store (e.g. `$DSH_HOME/.credentials.yaml`), not in any settings document;
+- a field left blank does not clear the stored key.
 
-La `TAVILY_API_KEY` configurata dalla pagina sovrascrive solo il valore del Host: se l'ambiente ne esporta una diversa, quella dell'ambiente resta il valore effettivo (livello `read-only` e preminente). Il salvataggio delle chiavi di Brave, TinyFish ed Exa ha lo stesso comportamento.
+A key stored from the page loses to a differently named environment export: an ambient variable is read-only and wins, so what the page writes takes effect only when the environment does not also export that name.
 
-> **Stato UI**: la scheda è implementata e coperta da smoke test del bundle, ma non è ancora stata provata a runtime dentro il web client (serve un client in esecuzione). Non è inclusa nella verifica del MVP.
+> **UI status**: implemented and covered by bundle smoke tests, but not yet exercised inside a running web client. Not part of the MVP verification.
 
-### Convivenza con il provider DeepSeek nativo
+### Coexisting with the native DeepSeek provider
 
-Il profilo `web` di DSH include già `web-search-deepseek`. Quel provider è utilizzabile solo se è configurata una chiave (`DEEPSEEK_API_KEY`). Il seam `ctx.web` accetta un solo provider utilizzabile quando non ne è pinnato uno, quindi:
+The `web` profile already ships `web-search-deepseek`. That provider is usable only with a key (`DEEPSEEK_API_KEY`). The `ctx.web` seam allows exactly one usable provider when none is pinned, so:
 
-- **Senza `DEEPSEEK_API_KEY`**: il provider DeepSeek non è utilizzabile e lo stack è l'unico candidato. Nessuna configurazione extra.
-- **Con `DEEPSEEK_API_KEY`**: i due provider sono entrambi utilizzabili e il seam risponde `WEB_PROVIDER_AMBIGUOUS`. Devi scegliere il provider nel config del servizio `web`, impostando `searchProvider: websearch-stack` (campo di `WebRuntimeConfig`, non di questo plugin). Non è possibile farlo da questo plugin, perché `apply` riceve solo la propria configurazione.
+- **Without `DEEPSEEK_API_KEY`**: the DeepSeek provider is unusable and the stack is the only candidate. Nothing to configure.
+- **With `DEEPSEEK_API_KEY`**: both providers are usable and the seam answers `WEB_PROVIDER_AMBIGUOUS`. Pin one in the `web` service config with `searchProvider: websearch-stack` (a `WebRuntimeConfig` field, not this plugin's). The plugin cannot set it itself — `apply` only receives its own config.
 
-## Come funziona il fallback
+## How the fallback works
 
-Il seam `ctx.web` accetta un solo provider di ricerca utilizzabile quando non ne è configurato uno. Per questo il plugin registra un unico provider, `websearch-stack`, che prova i backend in ordine:
+The seam accepts a single usable search provider when none is configured. So the plugin registers exactly one provider, `websearch-stack`, that walks the backends in order:
 
-- un errore recuperabile (rete, timeout, rate limit, risposta non valida) passa al backend successivo;
-- un errore terminale (es. annullamento) interrompe la catena e viene rilanciato;
-- se tutti falliscono, l'errore elenca i tentativi.
+- a recoverable error (network, timeout, rate limit, invalid response) moves to the next backend;
+- a terminal error (e.g. cancellation) stops the chain and rethrows;
+- if all fail, the error lists every attempt.
 
-## Sviluppo
+## Development
 
 ```bash
 npm install
-npm run typecheck   # tsc --noEmit
-npm test            # test unitari e di integrazione (node:test)
-npm run build       # rigenera lib/ da src/
+npm run typecheck     # tsc --noEmit
+npm test              # unit/integration tests (node:test)
+npm run build         # rebuild lib/ from src/ (also emits the client bundle)
+npm run bundle:client # rebuild only lib/client.js (ModuleLoader bundle)
 ```
 
-`lib/` è committato. Dopo ogni modifica a `src/` esegui `npm run build` e committa anche `lib/`.
+`lib/` is committed. After changing `src/`, run `npm run build` and commit `lib/` too — CI fails if they drift apart.
 
-## Limiti noti
+## Known limitations
 
-- **Servizi reali parzialmente verificati.** Tavily keyless e Parallel MCP sono verificati live. Brave, TinyFish, Exa e SearXNG non lo sono ancora: richiedono chiavi o un'istanza.
-- **UI non verificata a runtime.** La scheda impostazioni esiste (chiavi via `credentials`), ma non è mai stata esercitata dentro il web client; la configurazione dei backend resta via YAML.
-- **Convivenza con DeepSeek.** Con `DEEPSEEK_API_KEY` impostata serve `searchProvider` nel servizio `web` (vedi sopra).
-- **Nessun fetch.** Il fetch di pagine è gestito dal provider `dsh-web-fetch-http` di DSH, non da questo plugin.
-- **Il plugin non è sandbox.** Il codice gira nel processo host con i suoi privilegi, come ogni plugin DSH.
+- **Live services partially verified.** Tavily keyless and Parallel MCP verified live. Brave, TinyFish, Exa and SearXNG are not yet: they need API keys or a local instance.
+- **UI never run in a real client.** The settings card exists (keys via `credentials`), but has never been exercised inside a running web client; backend enablement stays YAML-only.
+- **Coexistence with DeepSeek.** With `DEEPSEEK_API_KEY` set, `searchProvider` must be pinned in the `web` service config (see above).
+- **No fetch.** Page fetching is handled by DSH's `dsh-web-fetch-http` provider, not this plugin.
+- **Not a sandbox.** The code runs inside the host process with its privileges, like every dsh plugin.
 
-## Licenza
+## License
 
-MIT, vedi [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
