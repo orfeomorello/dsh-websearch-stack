@@ -178,3 +178,16 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - `analisi.md` §12 (mappa `plugins:`) contrasta con la guida §3 (array `insert:`): seguo la guida.
 - `trafilatura` è Python: non usarlo. Il fetch locale resta fuori MVP (il seam ha già `dsh-web-fetch-http`).
 - Il brief chiede `WebSearchResponse` e `test()` su ogni provider: l'API reale non li prevede. Il test di connessione va fatto come chiamata `search` reale nel comando o nel test.
+
+## Round 15 — UI Settings (card client web)
+
+- Scompartito in dettaglio il pacchetto di riferimento `dsh-client-ui-settings-web-search` 0.1.7-alpha.1: il formato bundle è `window.__ModuleLoader__.load({ id, factory })` con modulo CommonJS dentro e `require` dal registry del client.
+- Verificato il contratto reale dei pacchetti 0.2.0-rc.2: slot confermato **`plugins.bundle.config`** (keyed col nome del pacchetto; `plugins.item` è riservato ai plugin ufficiali), primitives `SettingsSecretField`, remote `credentials` con `describe`/`set`/`unset` + evento `credentials/reference-updated` (dsh-api-remotes 0.2.0-rc.2).
+- Servizio credenziali del Host: `@deepseek-ai/dsh-credentials` (`describe` → `{configured, source?, writable}`, mai il valore) con provider file `~/.dsh/.credentials.yaml` (`dsh-credentials-local`): ambiente read-only preminente.
+- Deciso con l'utente: la card gestisce SOLO le API keys (Tavily, Brave, TinyFish, Exa), non enabled_providers/SearXNG URL (restano via YAML).
+- Scritto `src/client/card.ts` (store snapshot, controller describe/set con bozze staged, salvataggio multiplo, componente React con `createElement`, `apply` che registra dictionary + invalidation + slot) — un file unico perché il bundle è un solo modulo.
+- `scripts/bundle-client.mjs`: traspile con tsc (commonjs) e wrap nel formato ModuleLoader; produce `lib/client.js` + `lib/client/card.d.ts`. `npm run build` ora genera anche il bundle; `src/client` escluso dalla build host.
+- package.json: `exports["./client"]`, `dsh.client { platform: web, inject: [locale, ui-settings, ui-plugin-manager, api-remotes] }`, devDeps react + primitives + client-locale.
+- Test: 4 nuovi per il bundle client (formato loader, registrazione slot keyed, inject face, describe iniziale) — 33+9 verdi in totale, typecheck ok.
+- **Limite**: la card non è mai stata caricata dentro il web client reale (serve un client in esecuzione): smoke test solo su stub vm.
+- Scartata la strada `ctx.configForms` (esiste solo per namespace di provider; un bundle non ne ha uno) e `ctx.credentials` diretto (tecnicamente disponibile ma il client usa il remote; i pacchetti client non importano dsh-credentials).

@@ -13,6 +13,12 @@ test('package.json main and exports point at files that exist', async () => {
   await access(join(root, pkg.main))
   await access(join(root, pkg.types))
   assert.equal(pkg.exports['.'].default, './lib/index.js')
+  // Browser bundle: the client export points at a file that exists, and the
+  // declaration carries the web platform registration the client loader reads.
+  await access(join(root, pkg.exports['./client'].default.replace(/^\.\//, '')))
+  await access(join(root, pkg.exports['./client'].types.replace(/^\.\//, '')))
+  assert.equal(pkg.dsh.client.platform, 'web')
+  assert.ok(Array.isArray(pkg.dsh.client.inject) && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-api-remotes'))
 })
 
 test('exported name matches the id in cordis.patch.yml', async () => {

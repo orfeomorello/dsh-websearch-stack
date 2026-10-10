@@ -69,6 +69,18 @@ search:
 
 Le chiavi vengono lette dalle variabili d'ambiente indicate. Il config YAML non contiene segreti.
 
+### Pagina impostazioni (client web)
+
+Il plugin include anche una scheda di configurazione per il client web di DSH (`dsh.client.platform: "web"`). Appare sulla pagina **Plugins**, nel dettaglio del bundle `dsh-websearch-stack`, e gestisce le quattro chiavi tramite il servizio `credentials` del Host:
+
+- lo stato mostra solo se una chiave è configurata (`describe`), mai il valore;
+- il valore scritto non passa da nessun documento di impostazioni (`set` nel credentials store del Host, es. `$DSH_HOME/.credentials.yaml`);
+- un campo lasciato vuoto non cancella la chiave esistente.
+
+La `TAVILY_API_KEY` configurata dalla pagina sovrascrive solo il valore del Host: se l'ambiente ne esporta una diversa, quella dell'ambiente resta il valore effettivo (livello `read-only` e preminente). Il salvataggio delle chiavi di Brave, TinyFish ed Exa ha lo stesso comportamento.
+
+> **Stato UI**: la scheda è implementata e coperta da smoke test del bundle, ma non è ancora stata provata a runtime dentro il web client (serve un client in esecuzione). Non è inclusa nella verifica del MVP.
+
 ### Convivenza con il provider DeepSeek nativo
 
 Il profilo `web` di DSH include già `web-search-deepseek`. Quel provider è utilizzabile solo se è configurata una chiave (`DEEPSEEK_API_KEY`). Il seam `ctx.web` accetta un solo provider utilizzabile quando non ne è pinnato uno, quindi:
@@ -98,7 +110,7 @@ npm run build       # rigenera lib/ da src/
 ## Limiti noti
 
 - **Servizi reali parzialmente verificati.** Tavily keyless e Parallel MCP sono verificati live. Brave, TinyFish, Exa e SearXNG non lo sono ancora: richiedono chiavi o un'istanza.
-- **Nessuna UI.** La pagina di configurazione è rinviata a una fase successiva: la configurazione avviene solo tramite YAML.
+- **UI non verificata a runtime.** La scheda impostazioni esiste (chiavi via `credentials`), ma non è mai stata esercitata dentro il web client; la configurazione dei backend resta via YAML.
 - **Convivenza con DeepSeek.** Con `DEEPSEEK_API_KEY` impostata serve `searchProvider` nel servizio `web` (vedi sopra).
 - **Nessun fetch.** Il fetch di pagine è gestito dal provider `dsh-web-fetch-http` di DSH, non da questo plugin.
 - **Il plugin non è sandbox.** Il codice gira nel processo host con i suoi privilegi, come ogni plugin DSH.

@@ -10,7 +10,25 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "types": "./lib/client/card.d.ts",
+      "default": "./lib/client.js"
+    },
     "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-api-remotes"
+      ],
+      "platform": "web"
+    }
   },
   "files": [
     "lib",
@@ -33,14 +51,10 @@
   "engines": {
     "node": ">=22.19.0"
   },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "node scripts/build.mjs",
+    "bundle:client": "node scripts/bundle-client.mjs",
     "test": "node --test test/*.test.mjs",
     "test:package": "npm run build && node --test test/package-smoke.test.mjs",
     "prepublishOnly": "npm run typecheck && npm run test && npm run test:package"
@@ -62,6 +76,10 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.2",
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0",
     "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
     "@deepseek-ai/dsh-web": "0.2.0-rc.2",
     "@types/node": "^22.19.0",

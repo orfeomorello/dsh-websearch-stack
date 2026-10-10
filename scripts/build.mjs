@@ -32,3 +32,12 @@ for await (const file of walk(lib)) {
   const fixed = text.replace(/(from\s+['"])(\.{1,2}\/[^'"]+?)\.ts(['"])/g, '$1$2.js$3')
   if (fixed !== text) await writeFile(file, fixed)
 }
+
+// The browser half is a separate artifact in the loader format the web client
+// executes; build.mjs regenerates it so a plain `npm run build` leaves lib/
+// complete and CI's stale-lib check stays meaningful.
+execFileSync(
+  process.execPath,
+  [join(root, 'scripts', 'bundle-client.mjs')],
+  { cwd: root, stdio: 'inherit' },
+)
