@@ -1,6 +1,6 @@
 import Schema from '@deepseek-ai/schemastery';
 /** Search backends the stack knows how to call, by their canonical identifiers. */
-export declare const BACKEND_IDS: readonly ["tavily", "parallel-mcp", "searxng"];
+export declare const BACKEND_IDS: readonly ["tavily", "parallel-mcp", "searxng", "brave"];
 export type BackendId = (typeof BACKEND_IDS)[number];
 export interface StackConfig {
     /** Ordered fallback chain. An empty list disables the plugin. */

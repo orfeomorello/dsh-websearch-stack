@@ -4,6 +4,7 @@ import http from 'node:http'
 import { SearxngBackend } from '../lib/backends/searxng.js'
 import { TavilyBackend } from '../lib/backends/tavily.js'
 import { ParallelMcpBackend } from '../lib/backends/parallel-mcp.js'
+import { BraveBackend } from '../lib/backends/brave.js'
 import { WebError } from '@deepseek-ai/dsh-web'
 
 /** Start a local HTTP server that answers every request with `handler`. */
@@ -155,6 +156,32 @@ test('Parallel MCP: a JSON-RPC error maps to WEB_PROVIDER_ERROR', async () => {
       new ParallelMcpBackend({ timeoutMs: 2000 }).search({ query: 'q' }),
       (e) => e instanceof WebError && e.code === 'WEB_PROVIDER_ERROR',
     )
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('Brave: unavailable without an API key', () => {
+  assert.equal(new BraveBackend({ apiKey: undefined, timeoutMs: 1000 }).available(), false)
+  assert.equal(new BraveBackend({ apiKey: '', timeoutMs: 1000 }).available(), false)
+  assert.equal(new BraveBackend({ apiKey: 'k', timeoutMs: 1000 }).available(), true)
+})
+
+test('Brave: sends X-Subscription-Token and maps web.results', async () => {
+  let seen
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    seen = { url: String(url), headers: init.headers }
+    return new Response(JSON.stringify({
+      web: { results: [{ title: 'B', url: 'https://b.test', description: 'd' }] },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  try {
+    const out = await new BraveBackend({ apiKey: 'tok', timeoutMs: 2000 }).search({ query: 'q', maxResults: 3 })
+    assert.equal(seen.headers['x-subscription-token'], 'tok')
+    assert.match(seen.url, /res\/v1\/web\/search\?q=q&count=3/)
+    assert.equal(out.sources[0].url, 'https://b.test')
+    assert.equal(out.sources[0].snippet, 'd')
   } finally {
     globalThis.fetch = original
   }

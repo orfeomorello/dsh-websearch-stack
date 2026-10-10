@@ -90,6 +90,12 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 
 - Round 1–3: shell non disponibile (exit 3221225794). Nessun avanzamento. Goal bloccato al round 3.
 - Round 4: shell disponibile. Verificate versioni e API. Analisi del seam completata. Prossimo: scaffold e provider.
+- Round 4 (seguito): scaffold, 3 backend, stack di fallback, index.ts, build lib/, 23 test verdi, typecheck ok, install di prova con `dsh plugin add` + `--dump-config` ok. Profilo di prova rimosso. README scritto. Repo git inizializzato, commit `b5c62ef`. `lib/` verificato allineato a `src/` dopo rebuild.
+
+## Stato finale del round 4
+
+- Repo git: commit `b5c62ef` su `main`, working tree pulito.
+- Restano: verifica con servizi reali (Tavily keyless, Parallel MCP), UI (rinviata), CI per `lib/` stantio, push su GitHub (serve owner), boot completo del profilo.
 
 ## Note tecniche da verificare
 
