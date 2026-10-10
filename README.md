@@ -10,9 +10,8 @@ Multi-provider web search for [DeepSeek Harness](https://github.com/deepseek-ai/
 
 - **Six search backends**: Tavily (keyless-capable), Parallel MCP (no credentials), SearXNG (self-hosted), Brave, TinyFish, Exa.
 - **Ordered fallback chain**: a recoverable error (network, timeout, rate limit, bad response) moves to the next backend; a terminal one aborts; if all fail the error lists every attempt.
-- **Live configuration**: the chain order, the SearXNG URL, the result cap, the timeout and the cache TTL are volatile fields, editable from the web client's Plugins page and applied on the next request.
-- **Web settings card** (client half): manage the four key-backed API keys from the web client's Plugins page, written through the Host's credentials store — never into a settings file.
-- **No secrets in YAML**: keys come from the Host credential store, with environment variables as the fallback.
+- **Keys without a restart**: the four key-backed backends are configured from the web client's Plugins page, written through the Host's credential store and resolved per request — never into a settings file, with environment variables as the fallback.
+- **Boot-time chain**: the chain order, the SearXNG URL, the result cap, the timeout and the cache TTL are volatile fields set from your profile's patch layer (see [Configuration](#configuration)).
 
 ## Install
 
@@ -30,9 +29,56 @@ dsh plugin --profile web add github:orfeomorello/dsh-websearch-stack
 dsh --profile web --dump-config > after.txt
 ```
 
+## Quick start
+
+The default chain `['tavily', 'parallel-mcp']` works with **no key and no configuration**: Tavily runs keyless, Parallel needs no credentials. Install the plugin, restart the profile, and ask anything that needs current information — `web_search` answers through the chain.
+
+From there:
+
+- **want more or different sources?** reorder the chain or add a backend in the profile patch (see [Configuration](#configuration)) — SearXNG, Brave, TinyFish and Exa each need their own setup;
+- **want your own instance?** follow [SearXNG](#searxng): no external API, no key, your infra;
+- **want higher-quality Tavily results or Brave/Exa?** paste a key on the plugin's page in the web client; it takes effect on the next request.
+
 ## Configuration
 
-Every option below is a **volatile** field: the Plugins page in the dsh web client renders a form from this schema, and an edit lands on the next request with no restart — the plugin instance is preserved, including the provider registration. The same fields can also be set in the `websearch-stack` section of the profile config for the initial value.
+Two surfaces, because the web client's Plugins page can only write credentials:
+
+| What | Where | When it takes effect |
+|---|---|---|
+| API keys (`TAVILY_API_KEY`, `BRAVE_SEARCH_API_KEY`, `TINYFISH_API_KEY`, `EXA_API_KEY`) | the **Plugins page** → this bundle's page, through the settings card | the next request, no restart |
+| `enabled_providers`, `searxng_url`, `default_max_results`, `default_timeout_ms`, `cache_ttl_seconds` | your profile's `cordis.patch.yml` (or a `--patch` overlay) | at the next profile boot |
+
+The second list is a host limitation, not a plugin one: in `@deepseek-ai/dsh-client-ui-plugin-manager` 0.2.0-rc.2 the page renders `plugins.bundle.config` **without** a config form, so a bundle's own fields never get a widget. The fields are declared volatile (each one a reference the Host can rewrite in place), so a form written against `plugins.row.config` — or any CLI tooling that writes the namespace — would apply them live; today the profile patch is the way.
+
+### Boot-time values
+
+The values live in the profile's own patch layer, `$DSH_HOME/profiles/<profile>/cordis.patch.yml`, keyed by this plugin's row id. This shape is verified with `dsh --profile <profile> --dump-config`:
+
+```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml
+- id: websearch-stack
+  name: dsh-websearch-stack
+  config:
+    enabled_providers: [tavily, parallel-mcp]
+    default_max_results: 5
+```
+
+For a one-off try without touching the file, an overlay applied after every other layer:
+
+```bash
+dsh --profile web --patch ./searxng.yml
+```
+
+```yaml
+# searxng.yml
+- id: websearch-stack
+  name: dsh-websearch-stack
+  config:
+    enabled_providers: [searxng, tavily]
+    searxng_url: http://localhost:8080
+```
+
+An absent field keeps its default. An unknown value is refused by the schema, so a typo fails the boot instead of silently disabling a backend.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -42,22 +88,22 @@ Every option below is a **volatile** field: the Plugins page in the dsh web clie
 | `default_timeout_ms` | `10000` | Per-backend request timeout in milliseconds (1 000–60 000). |
 | `cache_ttl_seconds` | `60` | Cache TTL for identical queries. `0` disables the cache. |
 
-The profile config is the boot-time value of the same fields, so a chain written there is what the page starts from:
-
-> The exact shape of the `config:` line in a profile patch is not yet verified with `dsh --profile web --dump-config` on a profile with the plugin installed. Check it first. The plugin guide (`docs/PLUGIN-GUIDE.md`, `cordis.patch.yml` section) indicates a row may carry `config:`:
-
-```yaml
-- insert:
-    - id: websearch-stack
-      name: dsh-websearch-stack
-      config:
-        enabled_providers: [searxng, tavily, parallel-mcp]
-        searxng_url: http://localhost:8080
-```
-
 ### SearXNG
 
-Needs an instance with the JSON format enabled. In SearXNG's `settings.yml`:
+The self-hosted option: your instance, no external API, no key. It needs two things — an instance with the JSON format enabled, and `searxng_url` pointing at it.
+
+1. Run an instance (Docker Compose, the project's recommended layout):
+
+```bash
+mkdir -p ./searxng/core-config/
+cd ./searxng/
+curl -fsSLO https://raw.githubusercontent.com/searxng/searxng/master/container/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/searxng/searxng/master/container/.env.example
+cp -i .env.example .env
+docker compose up -d
+```
+
+2. Enable the JSON format in `core-config/settings.yml` — `json` is **not** in the default `search.formats` (`html` only):
 
 ```yaml
 search:
@@ -65,6 +111,18 @@ search:
     - html
     - json
 ```
+
+3. Point the plugin at it (profile patch, then restart the profile):
+
+```yaml
+- id: websearch-stack
+  name: dsh-websearch-stack
+  config:
+    enabled_providers: [searxng, tavily, parallel-mcp]
+    searxng_url: http://localhost:8080
+```
+
+The backend calls `GET <searxng_url>/search?q=…&format=json&language=en` and reads `results[].{url,title,content}`. Without `searxng_url` the backend reports itself unavailable and the chain moves on. SearXNG's own installation details are in its [container](https://docs.searxng.org/admin/installation-docker.html) and [`search:` settings](https://docs.searxng.org/admin/settings/settings_search.html) pages.
 
 ## Backends
 
@@ -89,7 +147,7 @@ The plugin ships a configuration card for the dsh web client (`dsh.client.platfo
 - a field left blank does not clear the stored key;
 - each field is named after its provider — `Tavily API key`, `Brave Search API key`, `TinyFish API key`, `Exa API key` — and the **Search providers** section below links every backend to its owner's site (see below).
 
-> **UI status**: implemented and covered by bundle smoke tests, but not yet exercised inside a running web client. Not part of the MVP verification.
+> **UI status**: the page and the card were exercised in a live web client (the bundle page, its title, the key controls and the providers section render). What the host does **not** render is a form for this bundle's own config fields — see [Configuration](#configuration) and [Known limitations](#known-limitations).
 
 ### What the plugin page shows
 
@@ -156,7 +214,7 @@ The seam accepts a single usable search provider when none is configured. So the
 - a terminal error (e.g. cancellation) stops the chain and rethrows;
 - if all fail, the error lists every attempt.
 
-The chain order is read on every request, so reordering it on the Plugins page changes the very next search. When the chain is empty — or every backend in it is unavailable — `available()` is false and the seam answers `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`, because the bundle patch pins `searchProvider` to this provider. Re-enable a backend on the Plugins page to make `web_search` work again, with no restart in between.
+The chain order is read on every request, so an edit to `enabled_providers` in the profile patch takes effect from the next boot, and every backend in the chain is re-resolved per request. When the chain is empty — or every backend in it is unavailable — `available()` is false and the seam answers `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`, because the bundle patch pins `searchProvider` to this provider. Re-add a backend in the profile patch to make `web_search` work again.
 
 ## Development
 
@@ -173,7 +231,7 @@ npm run bundle:client # rebuild only lib/client.js (ModuleLoader bundle)
 ## Known limitations
 
 - **Live services partially verified.** Tavily keyless and Parallel MCP verified live. Brave, TinyFish, Exa and SearXNG are not yet: they need API keys or a local instance.
-- **UI never run in a real client.** The settings card exists (keys via `credentials`) and the config fields are declared volatile, but neither has been exercised inside a running web client.
+- **The chain is not editable from the web client.** The Plugins page renders a bundle's configuration card (the API keys here) but not a form for the bundle's own config fields: in `@deepseek-ai/dsh-client-ui-plugin-manager` 0.2.0-rc.2, `plugins.bundle.config` is rendered without the `form` prop, while `plugins.row.config` receives it. A `plugins.row.config` entry for the plugin's row could close this gap; until then, edit `$DSH_HOME/profiles/<profile>/cordis.patch.yml` and restart the profile (see [Configuration](#configuration)).
 - **Pinned seam, by design.** The bundle patch pins `web.searchProvider` to `websearch-stack`, because the base profile pins it to the DeepSeek provider, which is `available()` without a key. Consequence: with an empty chain `web_search` fails with `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` instead of falling back to the native provider (see [Coexisting with the native DeepSeek provider](#coexisting-with-the-native-deepseek-provider)).
 - **No fetch.** Page fetching is handled by DSH's `dsh-web-fetch-http` provider, not this plugin.
 - **Not a sandbox.** The code runs inside the host process with its privileges, like every dsh plugin.

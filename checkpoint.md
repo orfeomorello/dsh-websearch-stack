@@ -1,6 +1,6 @@
 # Checkpoint — dsh-websearch-stack
 
-Ultimo aggiornamento: round 20 (presentazione chiara della pagina plugin + link ai siti dei provider).
+Ultimo aggiornamento: round 21 (README revisionato: superficie di configurazione reale, SearXNG self-hosted, metadata GitHub).
 
 ## Stato
 
@@ -208,6 +208,18 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **Causa 2 (bottoni)**: `CardBody` creava due `<button>` nudi (nessuna className, nessun contenitore) come figli di una `div` vuota: bottoli nativi senza stile né spaziatura. Sostituiti dal frame condiviso `SettingsForm` delle primitives (colonna `.form`, footer flex con `gap: 8px`, save stilizzato, riga di errore). Rimosso il bottone Discard manuale: il frame scarta le bozze allo unmount, come fa la card ufficiale.
 - **Altre correzioni**: una risposta `{ ok: false }` di `set` conta ora come scrittura fallita (prima il `try/catch` non scattava mai: un Remote non rigetta per contratto). Retry con backoff (250ms/1s/4s) se l'Host non ha ancora servito il Remote al mount, più reload su `connection/reset`.
 - Test: +6 di regressione sul bundle (envelope RemoteResult, record plain, retry, write rifiutata che conserva la bozza, rendering nel frame). **39/39 verdi**, typecheck pulito, `lib/` rigenerato.
+
+## Round 21 — README obsoleto: cosa si configura davvero, e come
+
+- **Osservazione utente**: dalla pagina dei setting non si configura nulla (né la catena né `searxng_url`), e il README andava rivisto/arricchito.
+- **Verifiche fatte**:
+  - `@deepseek-ai/dsh-client-ui-plugin-manager@0.2.0-rc.2` (`lib/client.js`): `PackageDetail` renderizza `plugins.bundle.config` con `{ view: "page" }` **senza** `form`; il `form` lo riceve solo `plugins.row.config` (e `plugins.item`). Quindi i campi volatile del plugin non hanno widget nella UI: un bundle non ottiene una forma di config. La card esistente (chiavi) sì, perché è lei a renderli.
+  - Volatile = riferimento riscritto in posto (`schemastery` `createVolatile`: `get` + simbolo `write`): un writer (form/CLI) aggiorna il valore e i reader lo vedono alla richiesta successiva. Il plugin espone solo `get` (`src/config.ts` wrappa ogni campo).
+  - Shape della config di boot verificata con `dsh --profile dsh-wesearch-probe --patch probe-config.yml --dump-config`: la row `websearch-stack` accetta `config:` con `enabled_providers` e `searxng_url` (compare nel dump). Layer del profilo: `$DSH_HOME/profiles/<profile>/cordis.patch.yml`; overlay `--patch` applicato per ultimo (5 layer, `dsh-base` primo).
+  - SearXNG: docs ufficiali (2026.10.9) — `search.formats` di default è solo `html`, va aggiunto `json`; installazione docker consigliata via compose (`container/docker-compose.yml` + `.env.example`, config in `core-config/settings.yml`). Backend: `GET <base>/search?q=…&format=json&language=en` (language fisso `'en'` in `src/index.ts`).
+- **README riscritto nelle sezioni**: Features (tolto il claim falso "editable from the Plugins page"), Configuration (tabella delle due superfici: chiavi live dalla pagina, tutto il resto boot-time dalla patch del profilo; esempi verificati con `--patch` e file), nuova **Quick start** (default chain funziona senza chiavi), **SearXNG** (docker + json format + `searxng_url` + limiti), "How the fallback works" (niente più "reordering on the Plugins page"), "UI status" e Known limitations (la forma di config per bundle non è renderizzata dall'host; `plugins.row.config` chiuderebbe il gap — feature futura, non implementata).
+- **GitHub**: descrizione aggiornata (keyless default + seam + chain + chiavi dalla pagina) e topic aggiunti via `gh repo edit` (dsh, dsh-plugin, deepseek-harness, web-search, tavily, searxng).
+- Nessun cambiamento di codice: solo README, checkpoint e metadata del repo. Test/typecheck invariati (52/52).
 
 ## Round 20 — Pagina plugin poco chiara; ogni provider con nome + link al sito
 
