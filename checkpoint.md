@@ -102,6 +102,13 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **UI**: non iniziata.
 - Ricerca web: il provider DSH nativo richiede `DEEPSEEK_API_KEY`, quindi non è usabile per verificare i provider dal sistema.
 
+## Round 14
+
+- README riallineato allo stato reale: sei backend, verificati live solo Tavily keyless e Parallel MCP. Rimosso "3 backend".
+- Esempio YAML del README corretto alla forma `insert:` + `config:` della guida, marcato come da verificare con `dump-config`.
+- **Bug corretto**: Tavily aveva `apiKey: undefined` fisso, quindi `TAVILY_API_KEY` era ignorata. Ora legge la variabile d'ambiente, come gli altri backend.
+- 29/29 test verdi, typecheck ok.
+
 ## Round 13
 
 - Tentativo di verifica SearXNG: Docker CLI presente, ma il daemon non è in esecuzione (pipe `docker_engine` assente, richiede privilegi elevati). Nessuna escalation richiesta: SearXNG resta non verificato.

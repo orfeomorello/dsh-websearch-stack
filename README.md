@@ -2,7 +2,7 @@
 
 Multi-provider web search for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). The plugin registers one search provider on the `ctx.web` seam. That provider runs an ordered fallback chain over the backends you enable.
 
-> **Stato**: versione 0.1.0, MVP. Tavily, Parallel MCP e SearXNG sono implementati e testati con mock e con un server HTTP locale. I servizi reali non sono ancora stati verificati end-to-end: vedi [Limiti noti](#limiti-noti).
+> **Stato**: versione 0.1.0, MVP. Sei backend sono implementati (Tavily, Parallel MCP, SearXNG, Brave, TinyFish, Exa) e testati con mock. Verificati contro il servizio reale: **Tavily keyless** e **Parallel MCP**. Gli altri richiedono una chiave o un'istanza e non sono ancora verificati: vedi [Limiti noti](#limiti-noti).
 
 ## Installazione
 
@@ -26,7 +26,7 @@ Le opzioni vivono nella sezione `websearch-stack` del config del profilo.
 
 | Opzione | Default | Significato |
 |---|---|---|
-| `enabled_providers` | `['tavily', 'parallel-mcp']` | Catena di fallback, in ordine. Lista vuota = plugin disattivato, `web_search` ricade sul provider DSH. |
+| `enabled_providers` | `['tavily', 'parallel-mcp']` | Catena di fallback, in ordine. Valori: `tavily`, `parallel-mcp`, `searxng`, `brave`, `tinyfish`, `exa`. Lista vuota = plugin disattivato. |
 | `searxng_url` | — | URL base di un'istanza SearXNG, es. `http://localhost:8080`. Necessario per `searxng`. |
 | `default_max_results` | `5` | Numero massimo di fonti per query (1–20). |
 | `default_timeout_ms` | `10000` | Timeout per singolo backend (1 000–60 000 ms). |
@@ -34,12 +34,15 @@ Le opzioni vivono nella sezione `websearch-stack` del config del profilo.
 
 Esempio con SearXNG in testa alla catena:
 
+La forma esatta della riga `config:` nel patch del profilo non è ancora verificata con `dsh --dump-config` su un profilo con il plugin installato. Prima di usarla, controlla con `dsh --profile web --dump-config`. La guida (`docs/PLUGIN-GUIDE.md`, sezione `cordis.patch.yml`) indica che una riga può avere `config:`:
+
 ```yaml
-plugins:
-  - id: websearch-stack
-    config:
-      enabled_providers: [searxng, tavily, parallel-mcp]
-      searxng_url: http://localhost:8080
+- insert:
+    - id: websearch-stack
+      name: dsh-websearch-stack
+      config:
+        enabled_providers: [searxng, tavily, parallel-mcp]
+        searxng_url: http://localhost:8080
 ```
 
 ### SearXNG
@@ -57,9 +60,14 @@ search:
 
 | Id | Chiave | Note |
 |---|---|---|
-| `tavily` | opzionale | Senza chiave invia l'header `x-tavily-access-mode: keyless`. Con chiave, `Bearer`. |
-| `parallel-mcp` | no | JSON-RPC `tools/call` su `web_search`, senza credenziali. |
-| `searxng` | no | Istanza self-hosted, richiede `searxng_url`. |
+| `tavily` | `TAVILY_API_KEY` (opzionale) | Senza chiave invia l'header `x-tavily-access-mode: keyless` (verificato live). Con chiave, `Bearer`. |
+| `parallel-mcp` | no | JSON-RPC `tools/call` su `web_search` (argomenti `objective` e `search_queries`), senza credenziali. Verificato live. |
+| `searxng` | no | Istanza self-hosted, richiede `searxng_url`. Non verificato (serve un'istanza). |
+| `brave` | `BRAVE_SEARCH_API_KEY` | `X-Subscription-Token`. Non verificato con chiave reale. |
+| `tinyfish` | `TINYFISH_API_KEY` | Header `X-API-Key`. Non verificato con chiave reale. |
+| `exa` | `EXA_API_KEY` | Header `x-api-key`, `POST /search`. Non verificato con chiave reale. |
+
+Le chiavi vengono lette dalle variabili d'ambiente indicate. Il config YAML non contiene segreti.
 
 ### Convivenza con il provider DeepSeek nativo
 
@@ -89,8 +97,9 @@ npm run build       # rigenera lib/ da src/
 
 ## Limiti noti
 
-- **Servizi reali non verificati.** Gli header e il formato di Tavily e di Parallel MCP sono implementati dal brief di progetto, non confermati contro il servizio live. Prima della 0.1.0 vanno testati con chiamate reali.
+- **Servizi reali parzialmente verificati.** Tavily keyless e Parallel MCP sono verificati live. Brave, TinyFish, Exa e SearXNG non lo sono ancora: richiedono chiavi o un'istanza.
 - **Nessuna UI.** La pagina di configurazione è rinviata a una fase successiva: la configurazione avviene solo tramite YAML.
+- **Convivenza con DeepSeek.** Con `DEEPSEEK_API_KEY` impostata serve `searchProvider` nel servizio `web` (vedi sopra).
 - **Nessun fetch.** Il fetch di pagine è gestito dal provider `dsh-web-fetch-http` di DSH, non da questo plugin.
 - **Il plugin non è sandbox.** Il codice gira nel processo host con i suoi privilegi, come ogni plugin DSH.
 
