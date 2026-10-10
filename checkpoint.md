@@ -92,6 +92,16 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - Round 4: shell disponibile. Verificate versioni e API. Analisi del seam completata. Prossimo: scaffold e provider.
 - Round 4 (seguito): scaffold, 3 backend, stack di fallback, index.ts, build lib/, 23 test verdi, typecheck ok, install di prova con `dsh plugin add` + `--dump-config` ok. Profilo di prova rimosso. README scritto. Repo git inizializzato, commit `b5c62ef`. `lib/` verificato allineato a `src/` dopo rebuild.
 
+## Round 5
+
+- Aggiunto backend `brave` (documentato: `GET /res/v1/web/search`, header `X-Subscription-Token`, `web.results[]`). Chiave da env `BRAVE_SEARCH_API_KEY`: il pacchetto `dsh-web` non espone un servizio credenziali.
+- 25/25 test verdi, typecheck ok, `lib/` allineato a `src/`. Commit `8549499`.
+- **Exa**: documentazione letta solo parzialmente (pagina troncata prima del body). Non implementato: serve la pagina completa dei parametri.
+- **TinyFish**: nessuna fonte ottenuta (la ricerca web non restituisce risultati). Non implementato.
+- **Jina** (fetch): non implementato; il fetch di DSH è già coperto da `dsh-web-fetch-http`.
+- **UI**: non iniziata.
+- Ricerca web: il provider DSH nativo richiede `DEEPSEEK_API_KEY`, quindi non è usabile per verificare i provider dal sistema.
+
 ## Stato finale del round 4
 
 - Repo git: commit `b5c62ef` su `main`, working tree pulito.

@@ -5,6 +5,7 @@ import { TavilyBackend } from './backends/tavily.ts'
 import { ParallelMcpBackend } from './backends/parallel-mcp.ts'
 import { SearxngBackend } from './backends/searxng.ts'
 import { BraveBackend } from './backends/brave.ts'
+import { TinyfishBackend } from './backends/tinyfish.ts'
 import { StackSearchProvider } from './stack.ts'
 import type { WebSearchProvider } from '@deepseek-ai/dsh-web'
 
@@ -28,6 +29,11 @@ function makeBackend(id: BackendId, config: StackConfig): WebSearchProvider {
     case 'brave':
       return new BraveBackend({
         apiKey: process.env.BRAVE_SEARCH_API_KEY,
+        timeoutMs: config.default_timeout_ms,
+      })
+    case 'tinyfish':
+      return new TinyfishBackend({
+        apiKey: process.env.TINYFISH_API_KEY,
         timeoutMs: config.default_timeout_ms,
       })
   }

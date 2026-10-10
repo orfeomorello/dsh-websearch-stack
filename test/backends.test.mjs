@@ -5,6 +5,7 @@ import { SearxngBackend } from '../lib/backends/searxng.js'
 import { TavilyBackend } from '../lib/backends/tavily.js'
 import { ParallelMcpBackend } from '../lib/backends/parallel-mcp.js'
 import { BraveBackend } from '../lib/backends/brave.js'
+import { TinyfishBackend } from '../lib/backends/tinyfish.js'
 import { WebError } from '@deepseek-ai/dsh-web'
 
 /** Start a local HTTP server that answers every request with `handler`. */
@@ -186,3 +187,25 @@ test('Brave: sends X-Subscription-Token and maps web.results', async () => {
     globalThis.fetch = original
   }
 })
+
+test('TinyFish: unavailable without a key; sends X-API-Key and maps results', async () => {
+  assert.equal(new TinyfishBackend({ apiKey: undefined, timeoutMs: 1000 }).available(), false)
+  let seen
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    seen = { url: String(url), headers: init.headers }
+    return new Response(JSON.stringify({
+      results: [{ title: 'T', url: 'https://t.test', snippet: 's' }, { title: 'U', url: 'https://u.test' }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  try {
+    const out = await new TinyfishBackend({ apiKey: 'k', timeoutMs: 2000 }).search({ query: 'q', maxResults: 1 })
+    assert.equal(seen.headers['x-api-key'], 'k')
+    assert.match(seen.url, /api\.search\.tinyfish\.ai\/?\?query=q/)
+    assert.equal(out.sources.length, 1)
+    assert.equal(out.truncated, true)
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
