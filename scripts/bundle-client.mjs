@@ -50,7 +50,13 @@ mkdirSync(join(root, 'lib', 'client'), { recursive: true })
 writeFileSync(join(root, 'lib', 'client', 'card.d.ts'), readFileSync(join(outDir, 'card.d.ts'), 'utf8'))
 rmSync(outDir, { recursive: true, force: true })
 
-const PLUGIN_ID = '@deepseek-ai/dsh-websearch-stack'
+// The registration id is the package name, never a scoped or prefixed
+// variant: dsh-client-modules keys the boot graph row by the package name and
+// the browser asserts `factories.has(row.id)` after the script executes, so a
+// mismatching id fails the whole client bundle ("loaded without registering"
+// via __ModuleLoader__.load).
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const PLUGIN_ID = pkg.name
 const loader = `window.__ModuleLoader__.load({
 \tid: ${JSON.stringify(PLUGIN_ID)},
 \tfactory: (require) => {

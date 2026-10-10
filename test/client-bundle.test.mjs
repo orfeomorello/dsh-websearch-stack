@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -68,8 +69,12 @@ function compile() {
 }
 
 test('bundle is in the ModuleLoader format with this package id', () => {
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  assert.equal(typeof pkg.name, 'string')
   assert.match(source, /^window\.__ModuleLoader__\.load\(/)
-  assert.ok(source.includes('"@deepseek-ai/dsh-websearch-stack"'))
+  // The registration id must be the bare package name: the boot graph row is
+  // keyed by it and the loader asserts it after executing the script.
+  assert.ok(source.includes(JSON.stringify(pkg.name)))
   // The two bare requires the client registry must resolve.
   assert.ok(source.includes('require("react")'))
   assert.ok(source.includes('require("@deepseek-ai/dsh-client-ui-primitives")'))
