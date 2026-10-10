@@ -1,6 +1,6 @@
 # Checkpoint — dsh-websearch-stack
 
-Ultimo aggiornamento: round 19 (fix: ricerca web instradata al provider DeepSeek nativo).
+Ultimo aggiornamento: round 20 (presentazione chiara della pagina plugin + link ai siti dei provider).
 
 ## Stato
 
@@ -208,6 +208,20 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **Causa 2 (bottoni)**: `CardBody` creava due `<button>` nudi (nessuna className, nessun contenitore) come figli di una `div` vuota: bottoli nativi senza stile né spaziatura. Sostituiti dal frame condiviso `SettingsForm` delle primitives (colonna `.form`, footer flex con `gap: 8px`, save stilizzato, riga di errore). Rimosso il bottone Discard manuale: il frame scarta le bozze allo unmount, come fa la card ufficiale.
 - **Altre correzioni**: una risposta `{ ok: false }` di `set` conta ora come scrittura fallita (prima il `try/catch` non scattava mai: un Remote non rigetta per contratto). Retry con backoff (250ms/1s/4s) se l'Host non ha ancora servito il Remote al mount, più reload su `connection/reset`.
 - Test: +6 di regressione sul bundle (envelope RemoteResult, record plain, retry, write rifiutata che conserva la bozza, rendering nel frame). **39/39 verdi**, typecheck pulito, `lib/` rigenerato.
+
+## Round 20 — Pagina plugin poco chiara; ogni provider con nome + link al sito
+
+- **Richiesta utente**: sulla pagina di dettaglio del plugin si legge solo nome/versione/descrizione ("non è molto chiaro"); ogni provider dovrebbe avere un nome e un link al sito proprietario per configurarlo.
+- **Come funziona davvero la pagina** (verificato contro `@deepseek-ai/dsh-client-ui-plugin-manager@0.2.0-rc.2`, `lib/client.js` + `lib/types/client/slot-contract.d.ts`, e `readPluginMeta` in `@deepseek-ai/dsh-app-boot@0.2.0-rc.2` `lib/index.js` ~righe 1900-1995):
+  - `PackageDetail` mostra: titolo (`packageText`: `meta.title` con fallback a `pkg.name`), tag `v{version}`, `<code>{pkg.name}</code>`, descrizione (`meta.description` con fallback a `package.json.description`), poi `plugins.bundle.config` (la card), le righe, infine `plugins.detail.section`.
+  - `meta` lo costruisce l'Host con `readPluginMeta`: legge `<pkg>/locale/en.json` (`meta.title`, `meta.description`; altri file lingua nella stessa dir) e `package.json` (`name`/`description`/`icon`). Senza quel file il titolo è il nome tecnico del pacchetto — il "nome ripetuto" che vedeva l'utente.
+  - `plugins.detail.section` è uno slot "list" con `subject = {kind:'bundle'|'row'|'item', ...}`; la entry disegna il proprio chrome e restituisce `null` per soggetti che non la riguardano.
+- **Fix**:
+  1. `locale/en.json` (nuovo) + export `"./locale/*"` + `locale` in `files`: titolo "Web Search Stack" e descrizione chiara. Verificato con replay fedele di `readPluginMeta`: restituisce `{title:{en:'Web Search Stack'}, description:{en:...}}`. La self-reference `import.meta.resolve('dsh-websearch-stack/locale/en.json')` risolve, quindi l'export map è corretta.
+  2. `plugins.detail.section` registration in `src/client/card.ts`: sezione "Search providers" con una riga per backend (id nell'ordine del vocabolario `enabled_providers`): nome leggibile, tag requisito (`API key` / `API key optional` / `No key needed` / `Self-hosted instance`) e link al sito del proprietario. Link verificati live (HTTP 200): app.tavily.com/home, docs.parallel.ai, docs.searxng.org, brave.com/search/api, docs.tinyfish.ai/search-api/reference, exa.ai (search.parallel.ai dà 404: escluso).
+  3. Card: i quattro campi chiave ora si chiamano `Tavily API key`, `Brave Search API key`, `TinyFish API key`, `Exa API key` (prima `Key (tavily)` ecc.).
+- **Verifiche**: `npm run build` (lib + client bundle), `npm run typecheck` pulito, `npm test` 52/52. Nuovi test: registrazione della sezione, 6 righe con un link https ciascuna (target `_blank`, rel `noreferrer noopener`), `null` per soggetti estranei, nomi dei campi, `locale/en.json` valido + export map + risoluzione Node. Commit da fare.
+- Nota di stile: la sezione usa inline style con i token CSS del client (`--dsw-alias-label-primary`, `--dsw-alias-brand-primary`) perché i plugin non possono usare i CSS module hash-ati della pagina host.
 
 ## Round 19 — Bug: ricerca web instradata al provider DeepSeek nativo
 

@@ -10,6 +10,11 @@
  * drafts save all at once; a blank draft writes nothing, which keeps the
  * stored key rather than clearing it.
  *
+ * The detail page also carries this bundle's contribution to
+ * `plugins.detail.section`: one row per search backend with its display
+ * name, what it takes to run, and a link to the owner's site where a key is
+ * created or the service is documented.
+ *
  * A Remote answer is a `RemoteResult`, never a bare value and never a throw:
  * `{ ok: true, value }` on success, `{ ok: false, error }` on failure. Reading
  * the payload out of `value` is what keeps the card usable — taking the
@@ -17,13 +22,15 @@
  * the whole form disabled.
  */
 import { createElement, useEffect, useState } from 'react'
-import { SettingsForm, SettingsSecretField } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SettingsForm, SettingsSecretField, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 
 /** Package name; also the `plugins.bundle.config` key the card registers under. */
 const BUNDLE_NAME = 'dsh-websearch-stack'
 /** Slot the plugin-manager declares for a bundle's own configuration. */
 const CONFIG_SLOT = 'plugins.bundle.config'
+/** Slot the plugin-manager declares for a section under a detail page's content. */
+const SECTION_SLOT = 'plugins.detail.section'
 /** Dictionary namespace owned by this card. */
 export const NS = 'websearchStack'
 /** Emit event the Host forwards when one credential reference changes. */
@@ -33,11 +40,48 @@ const REFERENCE_UPDATED_EVENT = 'credentials/reference-updated'
 const CREDENTIAL_REFS = ['TAVILY_API_KEY', 'BRAVE_SEARCH_API_KEY', 'TINYFISH_API_KEY', 'EXA_API_KEY'] as const
 type CredentialRef = (typeof CREDENTIAL_REFS)[number]
 
-const BACKEND_LABEL: Record<CredentialRef, string> = {
-  TAVILY_API_KEY: 'tavily',
-  BRAVE_SEARCH_API_KEY: 'brave',
-  TINYFISH_API_KEY: 'tinyfish',
-  EXA_API_KEY: 'exa',
+/** What one backend takes to run. */
+type Requirement = 'key' | 'key-optional' | 'keyless' | 'self-hosted'
+
+/** One search backend as the detail page presents it: its display name, what
+ * running it takes, and its owner's site, where the key is created or the
+ * service is documented. Ids match the `enabled_providers` values. */
+interface ProviderEntry {
+  readonly id: string
+  readonly label: string
+  readonly requirement: Requirement
+  readonly url: string
+}
+
+const PROVIDERS: readonly ProviderEntry[] = [
+  { id: 'tavily', label: 'Tavily', requirement: 'key-optional', url: 'https://app.tavily.com/home' },
+  { id: 'parallel-mcp', label: 'Parallel', requirement: 'keyless', url: 'https://docs.parallel.ai/' },
+  { id: 'searxng', label: 'SearXNG', requirement: 'self-hosted', url: 'https://docs.searxng.org/' },
+  { id: 'brave', label: 'Brave Search', requirement: 'key', url: 'https://brave.com/search/api/' },
+  { id: 'tinyfish', label: 'TinyFish', requirement: 'key', url: 'https://docs.tinyfish.ai/search-api/reference' },
+  { id: 'exa', label: 'Exa', requirement: 'key', url: 'https://exa.ai/' },
+]
+
+const REQUIREMENT_TAG: Record<Requirement, { readonly tone: 'success' | 'info' | 'outline' | 'warning'; readonly key: LocaleKey }> = {
+  key: { tone: 'outline', key: 'reqKey' },
+  'key-optional': { tone: 'info', key: 'reqKeyOptional' },
+  keyless: { tone: 'success', key: 'reqKeyless' },
+  'self-hosted': { tone: 'warning', key: 'reqSelfHosted' },
+}
+
+const LINK_LABEL: Record<Requirement, LocaleKey> = {
+  key: 'linkGetKey',
+  'key-optional': 'linkGetKey',
+  keyless: 'linkDocs',
+  'self-hosted': 'linkSetup',
+}
+
+/** Display name per credential reference, shared with the providers section. */
+const PROVIDER_LABEL: Record<CredentialRef, string> = {
+  TAVILY_API_KEY: 'Tavily',
+  BRAVE_SEARCH_API_KEY: 'Brave Search',
+  TINYFISH_API_KEY: 'TinyFish',
+  EXA_API_KEY: 'Exa',
 }
 
 /** English copy; `{name}`-style templating is not needed here. */
@@ -45,7 +89,7 @@ const en = {
   description: 'API keys for the search backends. Keys are stored by the Host, never in a settings file.',
   unavailable: 'The keys cannot be read right now; the plugin page will retry.',
   readOnly: 'This deployment stores settings read-only.',
-  keyLabel: 'Key',
+  keyLabel: 'API key',
   keyHint: 'Stored by the Host outside the settings file. Leave blank to keep the current key.',
   keyConfigured: 'A key is configured.',
   keyUnset: 'No key configured; the backend only works keyless or is skipped.',
@@ -53,6 +97,15 @@ const en = {
   save: 'Save',
   saving: 'Saving…',
   saveFailed: 'Some keys could not be saved; their drafts were kept.',
+  providersTitle: 'Search providers',
+  providersIntro: 'The fallback chain runs these in order and takes the first that answers; the ones that already work without any setup come first.',
+  reqKey: 'API key',
+  reqKeyOptional: 'API key optional',
+  reqKeyless: 'No key needed',
+  reqSelfHosted: 'Self-hosted instance',
+  linkGetKey: 'Get a key',
+  linkDocs: 'Open docs',
+  linkSetup: 'Setup guide',
 } as const
 type LocaleKey = keyof typeof en
 
@@ -251,11 +304,10 @@ function CardBody(props: {
   const { state, t } = props
   const fields = CREDENTIAL_REFS.map((ref) => {
     const key = state.keys[ref] ?? { configured: false, writable: true }
-    const backend = BACKEND_LABEL[ref]
     return createElement(SettingsSecretField, {
       key: ref,
-      id: `plugin-config-websearch-stack-${backend}`,
-      label: `${t('keyLabel')} (${backend})`,
+      id: `plugin-config-websearch-stack-${ref}`,
+      label: `${PROVIDER_LABEL[ref]} ${t('keyLabel')}`,
       hint: t('keyHint'),
       disabled: !state.ready || !key.writable,
       text: props.staged[ref] ?? '',
@@ -290,6 +342,51 @@ function CardBody(props: {
     onDiscard: props.onDiscard,
     children: fields,
   })
+}
+
+/** The subject the plugin-manager passes to a `plugins.detail.section` entry. */
+type DetailSubject = { readonly kind?: string; readonly pkg?: { readonly name?: string } }
+
+/** Layout for the section's own chrome, drawn from the client's theme tokens. */
+const SECTION_STYLE = { display: 'grid', gap: 8, margin: 0 } as const
+const HEADING_STYLE = { color: 'var(--dsw-alias-label-primary)', fontSize: 13, fontWeight: 600, margin: 0 } as const
+const INTRO_STYLE = { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, margin: 0 } as const
+const LIST_STYLE = { display: 'grid', gap: 8, margin: 0 } as const
+const ROW_STYLE = { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 } as const
+const NAME_STYLE = { color: 'var(--dsw-alias-label-primary)', fontSize: 12, fontWeight: 600 } as const
+const LINK_STYLE = { color: 'var(--dsw-alias-brand-primary)', fontSize: 12 } as const
+
+/**
+ * One row per search backend: its display name, what running it takes, and a
+ * link to the owner's site, where a key is created or the service documented.
+ * Renders nothing for a subject that is not this bundle's own page.
+ */
+function ProvidersSection(props: {
+  subject?: DetailSubject
+  t?: (key: LocaleKey) => string
+}): ReturnType<typeof createElement> | null {
+  const subject = props.subject
+  if (subject?.kind !== 'bundle' || subject.pkg?.name !== BUNDLE_NAME) return null
+  const t = props.t ?? ((key: LocaleKey) => key)
+  const rows = PROVIDERS.map((provider) => createElement('div', {
+    key: provider.id,
+    style: ROW_STYLE,
+    'data-websearch-stack-provider': provider.id,
+  },
+    createElement('span', { style: NAME_STYLE }, provider.label),
+    createElement(Tag, { tone: REQUIREMENT_TAG[provider.requirement].tone }, t(REQUIREMENT_TAG[provider.requirement].key)),
+    createElement('a', {
+      href: provider.url,
+      target: '_blank',
+      rel: 'noreferrer noopener',
+      style: LINK_STYLE,
+    }, t(LINK_LABEL[provider.requirement])),
+  ))
+  return createElement('section', { style: SECTION_STYLE, 'data-plugin-section': 'search-providers' },
+    createElement('h4', { style: HEADING_STYLE }, t('providersTitle')),
+    createElement('p', { style: INTRO_STYLE }, t('providersIntro')),
+    createElement('div', { style: LIST_STYLE }, ...rows),
+  )
 }
 
 /**
@@ -402,6 +499,20 @@ export function apply(ctx: ClientContext): void {
       }),
     }, StackCard)),
     'websearch-stack: card',
+  )
+
+  // The detail page's own chrome states title, version and name; this section
+  // answers what the page cannot say: which backends exist, what each one
+  // takes, and where its owner is configured.
+  card.effect(
+    () => card.slots.inject(SECTION_SLOT, () => card.slots.register({
+      name: SECTION_SLOT,
+      id: 'websearch-stack-providers',
+      locale: NS,
+      registrant: 'websearch-stack',
+      inject: () => ({ t }),
+    }, ProvidersSection)),
+    'websearch-stack: providers section',
   )
 }
 

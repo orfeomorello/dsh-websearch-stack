@@ -14,6 +14,7 @@
       "types": "./lib/client/card.d.ts",
       "default": "./lib/client.js"
     },
+    "./locale/*": "./locale/*",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -35,6 +36,7 @@
     "lib",
     "src",
     "cordis.patch.yml",
+    "locale",
     "README.md",
     "LICENSE"
   ],

@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile, access } from 'node:fs/promises'
+import { readFile, readdir, access } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { apply, inject, name, Config } from '../lib/index.js'
 import YAML from 'yaml'
 
@@ -195,4 +195,28 @@ test('apply() falls back to environment keys without a credentials service', asy
     if (previous === undefined) delete process.env.EXA_API_KEY
     else process.env.EXA_API_KEY = previous
   }
+})
+
+test('the plugin page title and description come from the exported locale', async () => {
+  // `readPluginMeta` (@deepseek-ai/dsh-app-boot) reads `<pkg>/locale/en.json`
+  // and falls back to package.json name/description otherwise, so without this
+  // file the Plugins page shows the bare package name as the title.
+  const localeDir = join(root, 'locale')
+  const files = (await readdir(localeDir)).filter((entry) => entry.endsWith('.json'))
+  assert.deepEqual(files, ['en.json'], 'locale/ holds only the English dictionary')
+  const dict = JSON.parse(await readFile(join(localeDir, 'en.json'), 'utf8'))
+  assert.equal(typeof dict.meta.title, 'string')
+  assert.ok(dict.meta.title.length > 0)
+  assert.notEqual(dict.meta.title, 'dsh-websearch-stack', 'title is display copy, not the package name')
+  assert.equal(typeof dict.meta.description, 'string')
+  assert.ok(dict.meta.description.length > 0)
+  // The export map must let the Host resolve `<pkg>/locale/en.json`; the
+  // package self-reference resolves through it, like `resolvePluginResource`.
+  const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+  assert.ok(pkg.exports['./locale/*'], 'exports maps ./locale/*')
+  assert.ok(pkg.files.includes('locale'), 'files ships the locale directory')
+  assert.equal(
+    import.meta.resolve('dsh-websearch-stack/locale/en.json'),
+    pathToFileURL(join(localeDir, 'en.json')).href,
+  )
 })

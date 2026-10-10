@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Web Search Stack",
+    "description": "One web_search provider with an ordered fallback chain over Tavily (keyless), Parallel MCP, SearXNG, Brave, TinyFish and Exa. The default chain needs no key at all; add one only for the backend you want."
+  }
+}

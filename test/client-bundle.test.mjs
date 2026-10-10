@@ -55,7 +55,7 @@ function compile() {
         return { createElement: (type, props, ...children) => ({ type, props, children }), useState: (init) => [typeof init === 'function' ? init() : init, () => {}], useEffect: () => {} }
       }
       if (spec === '@deepseek-ai/dsh-client-ui-primitives') {
-        return { SettingsSecretField: 'SettingsSecretField', SettingsForm: 'SettingsForm' }
+        return { SettingsSecretField: 'SettingsSecretField', SettingsForm: 'SettingsForm', Tag: 'Tag' }
       }
       throw new Error(`unexpected require: ${spec}`)
     },
@@ -105,10 +105,11 @@ test('apply registers the card into plugins.bundle.config keyed by the package n
   assert.equal(typeof exports.apply, 'function')
   exports.apply(context)
   const entries = registered.filter((r) => r.options !== undefined)
-  assert.equal(entries[0].options.name, 'plugins.bundle.config')
-  assert.equal(entries[0].options.key, 'dsh-websearch-stack')
-  assert.equal(entries[0].options.locale, 'websearchStack')
-  const card = entries[0].component
+  const config = entries.find((r) => r.options.name === 'plugins.bundle.config')
+  assert.ok(config, 'the card registers into plugins.bundle.config')
+  assert.equal(config.options.key, 'dsh-websearch-stack')
+  assert.equal(config.options.locale, 'websearchStack')
+  const card = config.component
   assert.notEqual(card, undefined)
   // Effect-scoped registration: dictionaries + invalidations + card + lifetime + load.
   assert.ok(effects.length >= 3)
@@ -139,8 +140,8 @@ test('the inject face exposes the controller actions and English dictionaries', 
         callback()
         return () => {}
       },
-      register: (options) => {
-        seen.push(options)
+      register: (options, component) => {
+        seen.push({ options, component })
         return () => {}
       },
     },
@@ -150,7 +151,7 @@ test('the inject face exposes the controller actions and English dictionaries', 
     window: { __ModuleLoader__: { load: (def) => def } },
     require: (spec) => {
       if (spec === 'react') return { createElement: (t, p, ...c) => ({ t, p, c }), useState: (i) => [typeof i === 'function' ? i() : i, () => {}], useEffect: () => {} }
-      if (spec === '@deepseek-ai/dsh-client-ui-primitives') return { SettingsSecretField: 'S', SettingsForm: 'SettingsForm' }
+      if (spec === '@deepseek-ai/dsh-client-ui-primitives') return { SettingsSecretField: 'S', SettingsForm: 'SettingsForm', Tag: 'Tag' }
       throw new Error(spec)
     },
     console,
@@ -158,9 +159,9 @@ test('the inject face exposes the controller actions and English dictionaries', 
   vm.createContext(sandbox)
   const def = vm.runInContext(source, sandbox)
   def.factory(sandbox.require).apply(ctx)
-  const entry = seen.find((options) => options.inject)
+  const entry = seen.find((r) => r.options.inject)
   assert.ok(entry, 'the card entry carries an inject face')
-  const face = entry.inject()
+  const face = entry.options.inject()
   assert.equal(typeof face.edit, 'function')
   assert.equal(typeof face.save, 'function')
   assert.equal(typeof face.discard, 'function')
@@ -180,6 +181,7 @@ function mount(credentials) {
   const primitives = {
     SettingsSecretField: 'SettingsSecretField',
     SettingsForm: 'SettingsForm',
+    Tag: 'Tag',
   }
   const react = {
     createElement: (type, props, ...children) => {
@@ -204,6 +206,7 @@ function mount(credentials) {
   vm.createContext(sandbox)
   const def = vm.runInContext(source, sandbox)
   const face = {}
+  const registrations = []
   let component
   const ctx = {
     locale: { bind: () => (key) => key, register: () => () => {} },
@@ -214,7 +217,7 @@ function mount(credentials) {
         return () => {}
       },
       register: (options, comp) => {
-        component = comp
+        registrations.push({ options, component: comp })
         Object.assign(face, options.inject())
         return () => {}
       },
@@ -222,7 +225,9 @@ function mount(credentials) {
     effect: (factory) => factory(),
   }
   def.factory(sandbox.require).apply(ctx)
-  return { face, component, store: face.hooks.card }
+  // The bundle.config card is registered first; keep it as the page's `component`.
+  component = registrations.find((r) => r.options.name === 'plugins.bundle.config')?.component
+  return { face, component, registrations, store: face.hooks.card }
 }
 
 /** A describe double answering the Host's `RemoteResult` shape. */
@@ -353,3 +358,99 @@ test('the page view renders the shared form frame, not bare buttons', async () =
   assert.equal(summary, 'description')
 })
 
+
+test('apply registers a providers section into plugins.detail.section', () => {
+  const { registrations } = mount(remoteDescribe({}))
+  const section = registrations.find((r) => r.options.name === 'plugins.detail.section')
+  assert.ok(section, 'the bundle registers into plugins.detail.section')
+  assert.equal(section.options.id, 'websearch-stack-providers')
+  assert.equal(section.options.locale, 'websearchStack')
+  assert.equal(section.options.registrant, 'websearch-stack')
+  assert.equal(typeof section.component, 'function')
+})
+
+/** Every link in a rendered tree, collected depth-first. */
+function linksOf(node, out = []) {
+  if (Array.isArray(node)) {
+    for (const child of node) linksOf(child, out)
+    return out
+  }
+  if (node !== null && typeof node === 'object' && 'type' in node) {
+    if (node.type === 'a') out.push(node.props)
+    linksOf(node.children ?? [], out)
+  }
+  return out
+}
+
+test('the providers section names every backend and links its owner site', () => {
+  const { registrations } = mount(remoteDescribe({}))
+  const section = registrations.find((r) => r.options.name === 'plugins.detail.section')
+  const tree = section.component({
+    subject: { kind: 'bundle', pkg: { name: 'dsh-websearch-stack' } },
+    t: (key) => key,
+  })
+  const rows = tree.children[2].children
+  assert.equal(rows.length, 6, 'one row per backend in the chain vocabulary')
+  const ids = []
+  for (const row of rows) {
+    ids.push(row.props['data-websearch-stack-provider'])
+    // Each row: display name, requirement tag, owner link.
+    const links = linksOf(row)
+    assert.equal(links.length, 1, `${row.props['data-websearch-stack-provider']} carries one link`)
+    assert.match(links[0].href, /^https:\/\//)
+    assert.equal(links[0].target, '_blank')
+    assert.equal(links[0].rel, 'noreferrer noopener')
+  }
+  assert.deepEqual(ids, ['tavily', 'parallel-mcp', 'searxng', 'brave', 'tinyfish', 'exa'])
+  // Keyless first: the chain's order is visible in the requirement tags.
+  const tags = rows.map((row) => row.children[1])
+  assert.equal(tags[0].type, 'Tag')
+  assert.equal(tags[0].children[0], 'reqKeyOptional')
+  assert.equal(tags[1].children[0], 'reqKeyless')
+  assert.equal(tags[2].children[0], 'reqSelfHosted')
+  assert.equal(tags[3].children[0], 'reqKey')
+})
+
+test('the providers section draws nothing on another plugin page', () => {
+  const { registrations } = mount(remoteDescribe({}))
+  const section = registrations.find((r) => r.options.name === 'plugins.detail.section')
+  for (const subject of [
+    { kind: 'bundle', pkg: { name: 'some-other-bundle' } },
+    { kind: 'row', pkg: { name: 'dsh-websearch-stack' } },
+    { kind: 'item', id: 'web-search-deepseek' },
+    undefined,
+  ]) {
+    assert.equal(section.component({ subject, t: (key) => key }), null)
+  }
+})
+
+test('the key controls name their provider, not the backend id', () => {
+  const { component } = mount(remoteDescribe({}))
+  const idle = { ready: true, dirty: false, failed: false, saving: false, keys: {} }
+  const tree = component({
+    view: 'page',
+    useCard: () => idle,
+    t: (key) => key,
+    edit: () => {},
+    save: () => {},
+    discard: () => {},
+    staged: () => ({}),
+  })
+  const fields = tree.children[0]
+  assert.equal(fields.length, 4)
+  // The stub `t` answers the key itself, so "keyLabel" stands for the
+  // dictionary's "API key": the display name leads, not the raw backend id.
+  // The spread leaves the sandbox realm, which deepEqual compares by prototype.
+  assert.deepEqual([...fields.map((field) => field.props.label)], [
+    'Tavily keyLabel',
+    'Brave Search keyLabel',
+    'TinyFish keyLabel',
+    'Exa keyLabel',
+  ])
+  assert.deepEqual([...fields.map((field) => field.props.id)], [
+    'plugin-config-websearch-stack-TAVILY_API_KEY',
+    'plugin-config-websearch-stack-BRAVE_SEARCH_API_KEY',
+    'plugin-config-websearch-stack-TINYFISH_API_KEY',
+    'plugin-config-websearch-stack-EXA_API_KEY',
+  ])
+})

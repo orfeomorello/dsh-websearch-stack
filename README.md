@@ -86,9 +86,31 @@ The plugin ships a configuration card for the dsh web client (`dsh.client.platfo
 - the state badge shows only whether a key is configured (`describe`), never the value;
 - what you write lands in the Host credential store (e.g. `$DSH_HOME/.credentials.yaml`), not in any settings document;
 - the provider re-resolves the reference on the Host's `credentials/reference-updated` event, so a key written from the page takes effect on the next request without a reboot;
-- a field left blank does not clear the stored key.
+- a field left blank does not clear the stored key;
+- each field is named after its provider — `Tavily API key`, `Brave Search API key`, `TinyFish API key`, `Exa API key` — and the **Search providers** section below links every backend to its owner's site (see below).
 
 > **UI status**: implemented and covered by bundle smoke tests, but not yet exercised inside a running web client. Not part of the MVP verification.
+
+### What the plugin page shows
+
+The Plugins page's detail for this bundle states the bundle's own identity —
+its display title from `locale/en.json`, its version, and the package name
+(the one you install elsewhere, in a `<code>` line) — then this plugin's
+configuration: the four key controls, named after their provider, and a
+**Search providers** section listing every backend the chain vocabulary accepts:
+
+| Provider | What it takes | Where to configure |
+|---|---|---|
+| Tavily | API key optional (works keyless) | https://app.tavily.com/home |
+| Parallel | No key needed | https://docs.parallel.ai/ |
+| SearXNG | Self-hosted instance | https://docs.searxng.org/ |
+| Brave Search | API key | https://brave.com/search/api/ |
+| TinyFish | API key | https://docs.tinyfish.ai/search-api/reference |
+| Exa | API key | https://exa.ai/ |
+
+Each row links to its owner's site, where a key is created or the service is
+documented. The section is the bundle's contribution to the page's
+`plugins.detail.section` slot; the copy lives in `src/client/card.ts`.
 
 ### Coexisting with the native DeepSeek provider
 
