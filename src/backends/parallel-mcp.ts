@@ -8,25 +8,29 @@ export interface ParallelMcpOptions {
   readonly timeoutMs: number
 }
 
+/** One result as returned by Parallel's `web_search` tool (verified via `tools/list`). */
+interface ParallelResult {
+  readonly url?: string
+  readonly title?: string | null
+  readonly publish_date?: string | null
+  readonly excerpts?: ReadonlyArray<string>
+}
+
+/** The tool result: `structuredContent` holds the typed response, `content` a text fallback. */
 interface JsonRpcResponse {
   readonly result?: {
-    readonly content?: ReadonlyArray<{ readonly type?: string; readonly text?: string }>
-    readonly structuredContent?: {
-      readonly results?: ReadonlyArray<{
-        readonly title?: string
-        readonly url?: string
-        readonly excerpt?: string
-      }>
-    }
+    readonly structuredContent?: { readonly results?: ReadonlyArray<ParallelResult> }
     readonly isError?: boolean
+    readonly content?: ReadonlyArray<{ readonly type?: string; readonly text?: string }>
   }
   readonly error?: { readonly message?: string }
 }
 
 /**
- * Parallel search through its remote MCP server, over the Streamable HTTP transport.
- * The stack speaks JSON-RPC directly: `tools/call` on `web_search`. Keyless use only;
- * no credentials are sent.
+ * Parallel search through its remote MCP server over Streamable HTTP, via JSON-RPC
+ * `tools/call` on `web_search`. Input is `objective` (natural language) plus
+ * `search_queries` (array of short keyword queries). Verified against the live
+ * endpoint with `tools/list`. Keyless: no credentials are sent.
  */
 export class ParallelMcpBackend implements WebSearchProvider {
   readonly id = 'parallel-mcp'
@@ -45,8 +49,8 @@ export class ParallelMcpBackend implements WebSearchProvider {
       params: {
         name: 'web_search',
         arguments: {
-          query: request.query,
-          max_results: request.maxResults ?? 5,
+          objective: request.query,
+          search_queries: [request.query],
         },
       },
     }
@@ -69,22 +73,28 @@ export class ParallelMcpBackend implements WebSearchProvider {
       throw new WebError(`MCP error: ${json.error.message ?? 'unknown'}`, 'WEB_PROVIDER_ERROR')
     }
     if (json.result?.isError === true) {
-      throw new WebError('Parallel MCP reported a tool error', 'WEB_PROVIDER_ERROR')
+      const text = json.result.content?.find((c) => c.type === 'text')?.text ?? 'tool error'
+      throw new WebError(`Parallel MCP tool error: ${text.slice(0, 200)}`, 'WEB_PROVIDER_ERROR')
     }
 
     const items = json.result?.structuredContent?.results
     if (!Array.isArray(items)) {
-      throw new WebError('Parallel MCP response has no results', 'WEB_PROVIDER_ERROR')
+      throw new WebError('Parallel MCP response has no structured results', 'WEB_PROVIDER_ERROR')
     }
 
-    const sources = items
+    const limit = request.maxResults ?? 5
+    const all = items
       .filter((item) => typeof item.url === 'string' && item.url.length > 0)
-      .map((item) => ({
-        url: item.url as string,
-        ...(item.title !== undefined ? { title: item.title } : {}),
-        ...(item.excerpt !== undefined ? { snippet: item.excerpt } : {}),
-      }))
+      .map((item) => {
+        const excerpt = item.excerpts?.find((e: string) => typeof e === 'string' && e.length > 0)
+        return {
+          url: item.url as string,
+          ...(typeof item.title === 'string' ? { title: item.title } : {}),
+          ...(excerpt !== undefined ? { snippet: excerpt } : {}),
+          ...(typeof item.publish_date === 'string' ? { publishedAt: item.publish_date } : {}),
+        }
+      })
 
-    return { sources, truncated: false }
+    return { sources: all.slice(0, limit), truncated: all.length > limit }
   }
 }

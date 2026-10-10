@@ -102,6 +102,21 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **UI**: non iniziata.
 - Ricerca web: il provider DSH nativo richiede `DEEPSEEK_API_KEY`, quindi non è usabile per verificare i provider dal sistema.
 
+## Round 8 — analisi UI (nessun codice scritto)
+
+- Letta la struttura dei plugin client di DSH in `dsh-client-ui-settings-web-search` (0.2.0-rc.2), scaricata in `%TEMP%` fuori dal repo.
+- Contratto UI: `package.json` con `dsh.client { inject, platform: "web" }`, bundle `lib/client.js` esposto come `exports["./client"]`, `apply(ctx)` che registra un contributo allo slot `settings.plugins.tab` con `id`, `order`, `label`.
+- Il pacchetto di riferimento usa `tsdown` per il bundle, non un preset interno.
+- **Decisione rinviata**: la card scrive le chiavi tramite il servizio `remote.credentials` del Host. Non l'ho verificato per il nostro plugin, e la UI non è testabile senza il web client in esecuzione. Non scrivo codice non verificato per il salvataggio di segreti.
+- Il backend funziona già via variabili d'ambiente e `cordis.patch.yml`; la UI è un miglioramento, non un prerequisito.
+
+## Round 7
+
+- Exa implementato dalla specifica JSON completa (https://exa.ai/docs/exa-spec.json): `POST https://api.exa.ai/search`, header `x-api-key`, `query` obbligatorio, `numResults` 1–100, `type: auto`, `contents.highlights`. Risposta `results[]`: `title` e `url` obbligatori, `publishedDate`, `highlights`. Chiave da env `EXA_API_KEY`. Commit `4c8592c`.
+- 27/27 test verdi, typecheck ok, `lib/` allineato a `src/`.
+- Provider coperti: Tavily, Parallel MCP, SearXNG, Brave, TinyFish, Exa (6 di 7 della lista del brief).
+- Restano: Jina (decisione: è fetch, non search; il fetch di DSH è `dsh-web-fetch-http`), UI, verifica su servizi reali.
+
 ## Round 6
 
 - Aggiunto backend `tinyfish`: `GET https://api.search.tinyfish.ai?query=`, header `X-API-Key`, chiave da env `TINYFISH_API_KEY`. Fonte: https://docs.tinyfish.ai/search-api/reference. Commit `535887c`.

@@ -3,9 +3,10 @@ export interface ParallelMcpOptions {
     readonly timeoutMs: number;
 }
 /**
- * Parallel search through its remote MCP server, over the Streamable HTTP transport.
- * The stack speaks JSON-RPC directly: `tools/call` on `web_search`. Keyless use only;
- * no credentials are sent.
+ * Parallel search through its remote MCP server over Streamable HTTP, via JSON-RPC
+ * `tools/call` on `web_search`. Input is `objective` (natural language) plus
+ * `search_queries` (array of short keyword queries). Verified against the live
+ * endpoint with `tools/list`. Keyless: no credentials are sent.
  */
 export declare class ParallelMcpBackend implements WebSearchProvider {
     private readonly options;

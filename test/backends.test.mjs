@@ -136,7 +136,7 @@ test('Tavily: sends a bearer token when a key is configured', async () => {
 test('Parallel MCP: maps structuredContent results to sources', async () => {
   const original = globalThis.fetch
   globalThis.fetch = async () => new Response(JSON.stringify({
-    result: { structuredContent: { results: [{ title: 'P', url: 'https://p.test', excerpt: 'e' }] } },
+    result: { structuredContent: { results: [{ title: 'P', url: 'https://p.test', excerpts: ['e'], publish_date: '2026-03-04' }] } },
   }), { status: 200, headers: { 'content-type': 'application/json' } })
   try {
     const out = await new ParallelMcpBackend({ timeoutMs: 2000 }).search({ query: 'q' })
@@ -235,3 +235,4 @@ test('Exa: unavailable without a key; posts x-api-key and maps results', async (
     globalThis.fetch = original
   }
 })
+
