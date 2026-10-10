@@ -1,6 +1,6 @@
 # Checkpoint — dsh-websearch-stack
 
-Ultimo aggiornamento: round 21 (README revisionato: superficie di configurazione reale, SearXNG self-hosted, metadata GitHub).
+Ultimo aggiornamento: round 22 (scoperte sulla superficie config-form e piano per la prossima estensione UI).
 
 ## Stato
 
@@ -259,3 +259,43 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **Backend come resolver** (`src/backends/*`): `apiKey`, `timeoutMs`, `limit`, `baseUrl` (SearXNG) sono funzioni lette per operazione; `available()` resta locale e sincrono (vincolo della seam).
 - **Registrazione sempre** (`src/index.ts`): il provider si registra una volta; `available()` risponde per la catena in forza, quindi catena vuota o senza chiavi rimette `web_search` al provider dell'host senza reload. Log della catena su `loader/volatile-update`.
 - Test: schema risolve in riferimenti volatile (+1), disponibilità live della catena (+1), refresh chiave da evento credentials (+1), ordine letto per operazione (+1), cache TTL (+2) — **46/46 verdi**, typecheck pulito, `lib/` rigenerato.
+
+## Round 22 — Perché la pagina non configura i campi, e come estenderla (prossimo round)
+
+Domanda: si può configurare SearXNG (e il resto) senza setup UI, e come si espanderebbe la config alla UI in futuro?
+
+### Scoperte verificate (pacchetti 0.2.0-rc.2 dal registry, controllati a fonte)
+
+- **CLI**: `dsh` sul PATH è quello del desktop (`%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`, **0.2.0-rc.2**): le verifiche `--dump-config` di questo round girano sulla versione dell'utente, non sul pacchetto npm globale (0.1.2-rc.1).
+- **Il form non arriva mai al bundle**: in `@deepseek-ai/dsh-client-ui-plugin-manager` (`lib/client.js`) `PackageDetail` chiama `renderSlot("plugins.bundle.config", { view: "page" }, { entryKey: pkg.name })` **senza** prop `form`. La prop `form` la passano solo `plugins.row.config` (`{ view: "page", form }`, `form = formFor(openRow.rowId)`) e `plugins.item`. Quindi i campi volatile del plugin non hanno widget: è un limite dell'host, non del plugin. La card (chiavi) funziona perché è lei a renderli.
+- **Chiave della row slot**: `rowConfigKey(bundle, rowId)` restituisce la stringa ``<bundle>#<rowId>`` (bundle e rowId separati da `#`), quindi per noi `dsh-websearch-stack#websearch-stack`.
+- **Namespace delle config**: `formFor(id)` cerca l'entry id tra le namespace servite (`configForms.describe().view.namespaces`). L'Host proietta lo schema `Config` di ogni entry loader in una namespace di settings (`SettingsForms` in `@deepseek-ai/dsh-settings`: "Project Config schemas into forms"). Il nostro entry id `websearch-stack` dovrebbe quindi bastare.
+- **Lato client** (`@deepseek-ai/dsh-client-ui-settings`, `lib/types/client/config-form.d.ts`): `ctx.configForms` con
+  - `get(entryId)` -> `ConfigForm { getSnapshot, subscribe, set(field, value), unset(field), mutate(ops, expectedRevision) }`;
+  - snapshot: `{ status: 'loading'|'ready'|'unavailable', value, base, user, revision, writable, mode: 'host'|'memory' }` — `base` = composition layer (la nostra patch), `user` = user layer; la presenza in `user` è ciò che rende un campo "overridden", e `unset` lo rimuove, riportando il campo al default composto;
+  - `whileServed(namespaces, register)` per registrare contributi solo se l'Host serve quelle namespace.
+- **Operazioni di scrittura** (`@deepseek-ai/dsh-settings`, ri-esportate da `dsh-api-remotes`): `SettingsPathOp = { op: 'set', path: string[], value } | { op: 'unset', path }`; viaggiano su `remote.settings` e finiscono nel documento settings dell'Host (user layer sopra la composition layer). Le referenze volatile del plugin vengono riscritte in posto (`schemastery`/`cosmokit` `createVolatile`: `get` + simbolo `write`), quindi il plugin vede il nuovo valore alla richiesta successiva, **senza restart**.
+- **`!!js`**: dialetto YAML delle patch (tag `tag:yaml.org,2002:js`); il loader valuta il nodo all'attivazione dell'entry con `interpolate` sull'hook `internal/config`, tramite `new Function("ctx", "expr", "with (ctx) { return eval(expr) }")` — i globali Node (`process`) sono raggiungibili. Verificato dal vivo: `--dump-config` stampa il nodo inerte (`searxng_url: !!js process.env...`) perché il dump è la patch composta, non il config risolto. Aggiunto al README (round 21+).
+- **Non verificato dal vivo**: il boot headless del profilo probe (per osservare l'interpolazione a runtime) resta appeso senza output e senza chiave modello; la valutazione `!!js` è verificata per lettura del loader più il dump del nodo inerte, non per osservazione del valore risolto.
+
+### Piano per la prossima estensione (config UI)
+
+**Rotta A — pagina della row** (nessun servizio nuovo, è l'host a passare il form):
+1. registrare `plugins.row.config` con `key: 'dsh-websearch-stack#websearch-stack'`, `locale: NS` e `registrant` come la card;
+2. nel componente usare `props.form` (la pagina lo passa quando la namespace è servita): snapshot via `getSnapshot`/`subscribe` (stesso pattern del `StackCardStore`), scrittura con `form.mutate([{ op: 'set', path: ['searxng_url'], value }], form.getSnapshot().revision)`;
+3. campi dalle primitive (`SettingsForm`, `settingsTextField`, `settingsNumberField`, `SettingsFormModel` da `@deepseek-ai/dsh-client-ui-primitives`): `enabled_providers` (lista), `searxng_url`, `default_max_results`, `default_timeout_ms`, `cache_ttl_seconds`;
+4. mostrare `value` con fallback su `base` (composition) e marcare i campi presenti in `user` come override, con azione "revert" via `unset`.
+
+**Rotta B — dentro la card del bundle** (superficie unica, nessuna pagina row da aprire):
+1. la card già registra `plugins.bundle.config`: usare `ctx.configForms.get('websearch-stack')` (stessa faccia della Rotta A, quindi store e componenti condivisi);
+2. aggiungere il servizio all'`inject` del bundle client (`@deepseek-ai/dsh-client-ui-settings` è già in `dsh.client.inject`, ma la strict-injection di cordis richiede la dichiarazione esplicita del servizio usato: `configForms`);
+3. registrare la sezione dentro `card.effect(() => card.configForms.whileServed(['websearch-stack'], () => { ... }))`, per non comparire se la namespace non è servita.
+
+**Da verificare per prima cosa, su un client reale** (non verificabile da qui):
+1. `configForms.describe()` include la namespace `websearch-stack` (cioè `formFor('websearch-stack')` è definito);
+2. `snapshot.mode === 'host'` (in `memory` le scritture restano locali al browser e non raggiungono il documento);
+3. una scrittura dalla UI aggiorna davvero il riferimento volatile del plugin senza restart (controllare che il log `fallback chain updated: ...` compaia al cambio catena).
+
+**Vincoli da rispettare**: niente segreti tra i cinque campi (le chiavi restano sul path `credentials`); la patch resta il composition layer, la UI scrive lo user layer; in `memory` mode la sezione deve dichiararsi non disponibile invece di fallire.
+
+## Round 21 � README obsoleto: cosa si configura davvero, e come
