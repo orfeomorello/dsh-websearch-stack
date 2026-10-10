@@ -1,3 +1,25 @@
+# dsh-websearch-stack bundle layer.
+#
+# `@deepseek-ai/dsh-base` pins the web seam's search provider to the native
+# DeepSeek one (`deepseek-official`), and that provider reports itself
+# available() even without DEEPSEEK_API_KEY (the key is resolved per search,
+# not in available()), so with the base pin in force a web_search fails with
+# WEB_PROVIDER_CREDENTIAL_MISSING and never reaches a provider this bundle
+# registers. Pin the seam to this stack instead.
+#
+# A patch replaces the matched row's whole `config` (never a deep merge), so
+# the fetch provider is restated exactly as the base row leaves it. The `web`
+# row only exists when the profile carries dsh-base; without it the seam
+# auto-selects and this row is skipped with a loader warning.
+#
+# Users keep the last word: the profile's own cordis.patch.yml, the home patch
+# and any --patch overlay are later layers and can pin a different provider.
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  config:
+    searchProvider: websearch-stack
+    fetchProvider: http
+
 - insert:
     - id: websearch-stack
       name: dsh-websearch-stack

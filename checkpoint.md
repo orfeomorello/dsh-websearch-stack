@@ -1,6 +1,6 @@
 # Checkpoint — dsh-websearch-stack
 
-Ultimo aggiornamento: round 4 (ripresa dopo riattivazione della shell).
+Ultimo aggiornamento: round 19 (fix: ricerca web instradata al provider DeepSeek nativo).
 
 ## Stato
 
@@ -208,6 +208,21 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **Causa 2 (bottoni)**: `CardBody` creava due `<button>` nudi (nessuna className, nessun contenitore) come figli di una `div` vuota: bottoli nativi senza stile né spaziatura. Sostituiti dal frame condiviso `SettingsForm` delle primitives (colonna `.form`, footer flex con `gap: 8px`, save stilizzato, riga di errore). Rimosso il bottone Discard manuale: il frame scarta le bozze allo unmount, come fa la card ufficiale.
 - **Altre correzioni**: una risposta `{ ok: false }` di `set` conta ora come scrittura fallita (prima il `try/catch` non scattava mai: un Remote non rigetta per contratto). Retry con backoff (250ms/1s/4s) se l'Host non ha ancora servito il Remote al mount, più reload su `connection/reset`.
 - Test: +6 di regressione sul bundle (envelope RemoteResult, record plain, retry, write rifiutata che conserva la bozza, rendering nel frame). **39/39 verdi**, typecheck pulito, `lib/` rigenerato.
+
+## Round 19 — Bug: ricerca web instradata al provider DeepSeek nativo
+
+- **Sintomo riportato dall'utente**: plugin abilitato, ma `web_search` fallisce con "DeepSeek non dispone di una API key configurata (DEEPSEEK_API_KEY)". Il provider del plugin viene registrato ma non viene mai selezionato.
+- **Causa radice (verificata contro l'host installato, `@deepseek-ai/dsh` 0.1.2-rc.1 in `%APPDATA%\npm`, profilo `web`)**:
+  1. `@deepseek-ai/dsh-base` pinna `web.searchProvider: deepseek-official` (row `web`, `cordis.patch.yml` di dsh-base riga ~450). Il seam `ctx.web` (`@deepseek-ai/dsh-web` `WebRuntime.resolveProvider`) seleziona SOLO il provider pinnato: senza pin ne serve uno solo `available()`.
+  2. `web-search-deepseek` (`dsh-web-search-deepseek/lib/index.js`) ha `available()` **true anche senza chiave**: la condizione è `(apiKey?.length ?? 0) > 0 || resolveApiKey !== void 0`, e `resolveApiKey` è sempre definito da `resolveOptions`. La chiave viene risolta per-search in `search()`, che lancia `WEB_PROVIDER_CREDENTIAL_MISSING`. Quindi il fail avviene a ricerca, non a selezione.
+  3. Conseguenza: la documentazione precedente (README round 11/18) era sbagliata su entrambi i punti — senza `DEEPSEEK_API_KEY` il provider nativo resta "usabile" per il seam, e con la chiave non è mai ambiguo (è sempre lui, perché è pinnato).
+- **Fix**: `cordis.patch.yml` del bundle ora overridea la row `web` (override per `id`, senza wrapper `insert`: `applyEntryPatches` in `@deepseek-ai/dsh-app-boot`/`cordis-plugin-include`) con `config: { searchProvider: websearch-stack, fetchProvider: http }`. `config` è sostituito intero (mai deep-merge), quindi `fetchProvider: http` è ristabilito come nella row di base. Layer del bundle applicato dopo `dsh-base` (`dsh plugin add` appende in coda a `dsh.profile.bundles`); profilo/home patch e `--patch` restano layer successivi e possono ribaltare il pin.
+- **Verifiche**:
+  - `dsh --profile dsh-wesearch-probe --dump-config` (host reale): la row `web` risulta `# == @deepseek-ai/dsh-base, patched by dsh-websearch-stack` con `searchProvider: websearch-stack`, `fetchProvider: http`, row `websearch-stack` inserita.
+  - Runtime con il seam reale (`WebRuntime` da `node_modules/@deepseek-ai/dsh-web`) + stub faithful di `deepseek-official` (available senza chiave, search lancia `WEB_PROVIDER_CREDENTIAL_MISSING`): col pin di base la ricerca fallisce con l'errore dell'utente; col pin del plugin la ricerca passa dallo stack e restituisce 5 fonti reali (Tavily keyless).
+  - `npm run typecheck` pulito; `npm test` 47/47 verdi (nuovo test: la patch pinnà il seam e ristabilisce `fetchProvider`, con replica dell'algoritmo `applyEntryPatches`).
+- **Comportamento con catena vuota**: cambiato per progetto. Con il pin, catena vuota/tutti backend non disponibili → il seam risponde `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` (prima il README prometteva il fallback al provider dell'host, che col pin di base non era mai raggiungibile). Documentato nel README; per tornare al provider nativo si ribalb il pin nella patch del profilo.
+- Aggiornati README (sezione "Coexisting with the native DeepSeek provider" riscritta con i fatti verificati) e commento di registrazione in `src/index.ts`. `lib/` rigenerato. Commit da fare.
 
 ## Round 18 — Config volatile: pagina Plugins, ordine di fallback, chiavi operative
 

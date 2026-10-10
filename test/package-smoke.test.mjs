@@ -26,8 +26,53 @@ test('package.json main and exports point at files that exist', async () => {
 
 test('exported name matches the id in cordis.patch.yml', async () => {
   const patch = YAML.parse(await readFile(join(root, 'cordis.patch.yml'), 'utf8'))
-  const id = patch[0].insert[0].id
-  assert.equal(id, name)
+  const inserted = patch.flatMap((row) => row.insert ?? [])
+  assert.equal(inserted.length, 1, 'cordis.patch.yml must insert exactly one plugin row')
+  assert.equal(inserted[0].id, name)
+  assert.equal(inserted[0].name, 'dsh-websearch-stack')
+})
+
+/**
+ * The loader's patch algorithm (`@deepseek-ai/cordis-plugin-include`'s
+ * `applyEntryPatches`): rows are matched by `id`, `insert` appends, and an
+ * override replaces the row's whole `config` — never a deep merge.
+ */
+function applyPatches(data, patches) {
+  const entries = structuredClone(data)
+  const byId = new Map(entries.map((entry) => [entry.id, entry]))
+  for (const { id, insert, name, ...overrides } of patches) {
+    if (insert) {
+      entries.push(...insert)
+      for (const entry of insert) byId.set(entry.id, entry)
+      continue
+    }
+    const target = byId.get(id)
+    assert.ok(target !== undefined, `patch target ${id} is not registered`)
+    if (name !== undefined) assert.equal(name, target.name, 'patch name must match the row it overrides')
+    Object.assign(target, overrides)
+  }
+  return entries
+}
+
+test('the bundle patch pins the web seam to this provider', async () => {
+  // `@deepseek-ai/dsh-base` pins `web.searchProvider` to the native DeepSeek
+  // provider, which reports available() even without DEEPSEEK_API_KEY, so an
+  // unpinned seam fails every web_search with WEB_PROVIDER_CREDENTIAL_MISSING
+  // and never reaches the provider this bundle registers. The patch pins the
+  // seam to the stack and restates `fetchProvider`, because a patch replaces
+  // the row's whole config.
+  const patch = YAML.parse(await readFile(join(root, 'cordis.patch.yml'), 'utf8'))
+  const base = [{
+    id: 'web',
+    name: '@deepseek-ai/dsh-web',
+    config: { searchProvider: 'deepseek-official', fetchProvider: 'http' },
+  }]
+  const composed = applyPatches(base, patch)
+  const row = composed.find((entry) => entry.id === 'web')
+  assert.equal(row.config.searchProvider, 'websearch-stack')
+  assert.equal(row.config.fetchProvider, 'http')
+  // The insert row survives the override, so the pinned id is registered.
+  assert.ok(composed.some((entry) => entry.id === 'websearch-stack'))
 })
 
 test('exports the plugin contract: name, inject, Config, apply', () => {
@@ -103,7 +148,8 @@ test('apply() registers exactly one search provider when backends are enabled', 
 
 test('the chain in force is what availability answers for, live', () => {
   // Registration happens once and always: disabling every backend takes effect
-  // with no reload, leaving web_search to the host's own provider.
+  // with no reload, and the seam answers WEB_PROVIDER_CONFIGURED_UNAVAILABLE
+  // because the bundle patch pins searchProvider to this provider.
   const { ctx, registered } = stubContext()
   const config = configOf()
   apply(ctx, config)

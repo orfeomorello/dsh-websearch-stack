@@ -9,8 +9,9 @@ export declare const Config: import("@deepseek-ai/schemastery").default<StackCon
  *
  * The provider is registered once and always: `available()` answers for the
  * chain currently in force, so an empty list — or a chain whose keys are all
- * missing — leaves `web_search` to the host's own provider until the user
- * enables one on the Plugins page, with no reload in between.
+ * missing — makes the seam answer `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` (the
+ * bundle patch pins `web.searchProvider` here), which is a louder and clearer
+ * signal than silently handing `web_search` to another provider.
  *
  * Keys come from the Host credentials service when it is served, and from the
  * environment otherwise; the service is read through `ctx.get` so a deployment

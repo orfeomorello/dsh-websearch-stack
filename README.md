@@ -36,7 +36,7 @@ Every option below is a **volatile** field: the Plugins page in the dsh web clie
 
 | Option | Default | Meaning |
 |---|---|---|
-| `enabled_providers` | `['tavily', 'parallel-mcp']` | Fallback chain, in order. Values: `tavily`, `parallel-mcp`, `searxng`, `brave`, `tinyfish`, `exa`. Empty list leaves `web_search` to the host's own provider. |
+| `enabled_providers` | `['tavily', 'parallel-mcp']` | Fallback chain, in order. Values: `tavily`, `parallel-mcp`, `searxng`, `brave`, `tinyfish`, `exa`. An empty list disables the plugin (see [How the fallback works](#how-the-fallback-works)). |
 | `searxng_url` | — | Base URL of a self-hosted SearXNG instance, e.g. `http://localhost:8080`. Required for `searxng`. |
 | `default_max_results` | `5` | Maximum sources per query when the request names none (1–20). |
 | `default_timeout_ms` | `10000` | Per-backend request timeout in milliseconds (1 000–60 000). |
@@ -92,10 +92,38 @@ The plugin ships a configuration card for the dsh web client (`dsh.client.platfo
 
 ### Coexisting with the native DeepSeek provider
 
-The `web` profile already ships `web-search-deepseek`. That provider is usable only with a key (`DEEPSEEK_API_KEY`). The `ctx.web` seam allows exactly one usable provider when none is pinned, so:
+The `web` profile already ships `web-search-deepseek` (provider id `deepseek-official`), and `@deepseek-ai/dsh-base` pins the seam to it:
 
-- **Without `DEEPSEEK_API_KEY`**: the DeepSeek provider is unusable and the stack is the only candidate. Nothing to configure.
-- **With `DEEPSEEK_API_KEY`**: both providers are usable and the seam answers `WEB_PROVIDER_AMBIGUOUS`. Pin one in the `web` service config with `searchProvider: websearch-stack` (a `WebRuntimeConfig` field, not this plugin's). The plugin cannot set it itself — `apply` only receives its own config.
+```yaml
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  config:
+    searchProvider: deepseek-official
+    fetchProvider: http
+```
+
+That pin is the whole problem for any third-party search provider: the DeepSeek provider's `available()` is true **even without `DEEPSEEK_API_KEY`** (it resolves the credential per search, not at selection time), so with the pin in force every `web_search` fails with `WEB_PROVIDER_CREDENTIAL_MISSING` and never reaches a provider this bundle registers.
+
+This bundle's `cordis.patch.yml` therefore overrides that row (later bundle layers win; the profile's own patch, the home patch and `--patch` overlays are later still and can pin anything they want):
+
+```yaml
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  config:
+    searchProvider: websearch-stack
+    fetchProvider: http
+```
+
+A patch replaces the matched row's whole `config` — never a deep merge — so `fetchProvider: http` is restated exactly as the base row leaves it. Without `@deepseek-ai/dsh-base` in the profile the `web` row does not exist, the override is skipped with a loader warning, and the seam auto-selects this provider as the only usable one.
+
+To hand `web_search` back to the native provider, re-pin it in your profile's `cordis.patch.yml` (or `--patch`), restating both keys:
+
+```yaml
+- id: web
+  config:
+    searchProvider: deepseek-official
+    fetchProvider: http
+```
 
 ## How the fallback works
 
@@ -106,7 +134,7 @@ The seam accepts a single usable search provider when none is configured. So the
 - a terminal error (e.g. cancellation) stops the chain and rethrows;
 - if all fail, the error lists every attempt.
 
-The chain order is read on every request, so reordering it on the Plugins page changes the very next search. When the chain is empty — or every backend in it is unavailable — `available()` is false and the seam falls back to the host's own provider.
+The chain order is read on every request, so reordering it on the Plugins page changes the very next search. When the chain is empty — or every backend in it is unavailable — `available()` is false and the seam answers `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`, because the bundle patch pins `searchProvider` to this provider. Re-enable a backend on the Plugins page to make `web_search` work again, with no restart in between.
 
 ## Development
 
@@ -124,7 +152,7 @@ npm run bundle:client # rebuild only lib/client.js (ModuleLoader bundle)
 
 - **Live services partially verified.** Tavily keyless and Parallel MCP verified live. Brave, TinyFish, Exa and SearXNG are not yet: they need API keys or a local instance.
 - **UI never run in a real client.** The settings card exists (keys via `credentials`) and the config fields are declared volatile, but neither has been exercised inside a running web client.
-- **Coexistence with DeepSeek.** With `DEEPSEEK_API_KEY` set, `searchProvider` must be pinned in the `web` service config (see above).
+- **Pinned seam, by design.** The bundle patch pins `web.searchProvider` to `websearch-stack`, because the base profile pins it to the DeepSeek provider, which is `available()` without a key. Consequence: with an empty chain `web_search` fails with `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` instead of falling back to the native provider (see [Coexisting with the native DeepSeek provider](#coexisting-with-the-native-deepseek-provider)).
 - **No fetch.** Page fetching is handled by DSH's `dsh-web-fetch-http` provider, not this plugin.
 - **Not a sandbox.** The code runs inside the host process with its privileges, like every dsh plugin.
 
