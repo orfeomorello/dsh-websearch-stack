@@ -57,6 +57,14 @@ declare class StackCardStore {
 /** Dictionary namespace owned by this card. */
 export { NS as CARD_NS };
 /**
+ * Service keys the card consumes. Cordis strict-injection guards every context
+ * property: accessing `ctx.locale` without declaring it here throws
+ * "cannot get property ... without inject" before `apply` runs. The remote is
+ * declared twice — the service and its `credentials` namespace — per the
+ * `remote` + `remote.<namespace>` client convention.
+ */
+export declare const inject: readonly ["locale", "slots", "remote", "remote.credentials"];
+/**
  * Mount the card while the Host serves its Remote. Registrations are
  * effect-scoped, so disposing the plugin's fiber removes the card.
  * @param ctx - the browser plugin context.

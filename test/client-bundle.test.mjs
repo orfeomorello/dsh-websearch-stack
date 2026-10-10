@@ -80,6 +80,26 @@ test('bundle is in the ModuleLoader format with this package id', () => {
   assert.ok(source.includes('require("@deepseek-ai/dsh-client-ui-primitives")'))
 })
 
+test('bundle exports inject covering every context service apply reads', () => {
+  // Cordis strict-injection: `apply` touching an undeclared service throws
+  // "cannot get property ... without inject" and the entry never mounts.
+  const registered = []
+  const sandbox = {
+    window: { __ModuleLoader__: { load: (def) => registered.push(def) } },
+    require: () => ({}),
+    console,
+  }
+  vm.createContext(sandbox)
+  vm.runInContext(source, sandbox)
+  assert.equal(registered.length, 1)
+  const { inject, apply: applyFn } = registered[0].factory(sandbox.require)
+  assert.ok(Array.isArray(inject), 'bundle exports inject as an array')
+  for (const key of ['locale', 'slots', 'remote', 'remote.credentials']) {
+    assert.ok(inject.includes(key), `inject declares "${key}"`)
+  }
+  assert.equal(typeof applyFn, 'function')
+})
+
 test('apply registers the card into plugins.bundle.config keyed by the package name', () => {
   const { exports, context, registered, effects } = compile()
   assert.equal(typeof exports.apply, 'function')
