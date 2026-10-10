@@ -102,6 +102,18 @@ Il brief descrive un'API che non corrisponde a quella installata. Seguo le `.d.t
 - **UI**: non iniziata.
 - Ricerca web: il provider DSH nativo richiede `DEEPSEEK_API_KEY`, quindi non è usabile per verificare i provider dal sistema.
 
+## Round 13
+
+- Tentativo di verifica SearXNG: Docker CLI presente, ma il daemon non è in esecuzione (pipe `docker_engine` assente, richiede privilegi elevati). Nessuna escalation richiesta: SearXNG resta non verificato.
+- Nessun remote git configurato: il push richiede l'owner GitHub.
+- Nessuna modifica al codice in questo round.
+
+## Round 12
+
+- CI aggiunta: `.github/workflows/ci.yml` (typecheck, test, build, fallisce se `lib/` non corrisponde a `src/`). Commit `8906e4b`.
+- Logica del controllo verificata in locale: lib pulito passa, modifica a `src` senza rebuild viene rilevata, ripristino pulito.
+- Il workflow non è ancora eseguito su GitHub: serve il push (vedi decisioni aperte).
+
 ## Round 11
 
 - Profilo `web` di default: include `web-search-deepseek` e `web-fetch-http`.
