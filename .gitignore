@@ -1,0 +1,6 @@
+node_modules/
+.tmp-inspect/
+*.log
+.DS_Store
+Thumbs.db
+# lib/ is committed on purpose (see README: git install without build step).
